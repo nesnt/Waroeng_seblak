@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Dukungan Pengaturan Ukuran Teks untuk Pemilik Warung Segala Usia */
+body.text-scale-normal {
+  font-size: 15px;
+}
+
+body.text-scale-large {
+  font-size: 17px;
+}
+
+body.text-scale-xlarge {
+  font-size: 19px;
+}
+
+/* Print receipt styling */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-receipt, #printable-receipt * {
+    visibility: visible;
+  }
+  #printable-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    margin: 0 auto;
+    padding: 10px;
+    background: white !important;
+    color: black !important;
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Waroeng Seblak 48 - Dashboard kasir",
+  "description": "Dashboard admin Waroeng Seblak 48 untuk memantau stok bahan, mencatat transaksi cepat, melihat omset, dan laporan penjualan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
