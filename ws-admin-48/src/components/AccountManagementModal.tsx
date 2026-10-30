@@ -454,7 +454,10 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                           <div className="text-stone-500 flex items-center gap-2 text-[11px] truncate mt-0.5">
                             <span>Username: <strong className="text-stone-700 dark:text-stone-300">{u.username}</strong></span>
                             <span>•</span>
-                            <span>Sandi: <code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">{u.password}</code></span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                              <Lock className="w-3 h-3 inline" />
+                              Terenkripsi Aman
+                            </span>
                           </div>
                         </div>
                       </div>

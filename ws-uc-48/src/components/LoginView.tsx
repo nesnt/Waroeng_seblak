@@ -13,9 +13,11 @@ import {
   EyeOff,
   ShieldCheck,
   LogIn,
+  Loader2,
 } from 'lucide-react';
 import { StoreSettings } from '../types';
 import { getRateLimitStatus, recordFailedAttempt, resetRateLimit } from '../utils/authRateLimit';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface LoginViewProps {
   settings: StoreSettings;
@@ -34,6 +36,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [rateLimit, setRateLimit] = useState(() => getRateLimitStatus('seblak48_kasir'));
 
   // Timer cooldown lockout rate limit (1 menit setelah 3x gagal)
@@ -50,7 +53,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
     return () => clearInterval(interval);
   }, [rateLimit.isLocked]);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const current = getRateLimitStatus('seblak48_kasir');
@@ -62,46 +65,69 @@ export const LoginView: React.FC<LoginViewProps> = ({
     const emailTrim = email.trim().toLowerCase();
     const passTrim = password.trim();
 
-    // Cek akun kasir / admin dari penyimpanan akun pengguna (seblak48_users)
-    let isMatchedUser = false;
+    setIsSubmitting(true);
+    setLoginError('');
+
     try {
-      const rawUsers = localStorage.getItem('seblak48_users');
-      if (rawUsers) {
-        const users = JSON.parse(rawUsers);
-        if (Array.isArray(users)) {
-          const matched = users.find(
-            (u: any) =>
-              u.username.toLowerCase() === emailTrim &&
-              u.password === passTrim &&
-              (u.role === 'KASIR' || u.role === 'ADMIN')
-          );
-          if (matched) isMatchedUser = true;
+      // 1. Jika Supabase aktif, verifikasi ke Supabase Auth
+      if (isSupabaseConfigured()) {
+        const normalized = emailTrim.includes('@') ? emailTrim : `${emailTrim}@seblak48.id`;
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: normalized,
+          password: passTrim,
+        });
+
+        if (data?.user) {
+          resetRateLimit('seblak48_kasir');
+          setLoginError('');
+          onLoginSuccess();
+          return;
         }
       }
-    } catch (e) {}
 
-    // Kredensial Kasir yang valid
-    const isValidKasir =
-      isMatchedUser ||
-      ((emailTrim === 'kasir@seblak48.id' ||
-        emailTrim === 'kasir' ||
-        emailTrim === 'kasir1' ||
-        emailTrim === 'admin@seblak48.id') &&
-        (passTrim === 'kasir48' || passTrim === 'seblak48' || passTrim === 'kasir123'));
+      // 2. Cek akun kasir / admin dari penyimpanan akun pengguna lokal (seblak48_users)
+      let isMatchedUser = false;
+      try {
+        const rawUsers = localStorage.getItem('seblak48_users');
+        if (rawUsers) {
+          const users = JSON.parse(rawUsers);
+          if (Array.isArray(users)) {
+            const matched = users.find(
+              (u: any) =>
+                u.username.toLowerCase() === emailTrim &&
+                u.password === passTrim &&
+                (u.role === 'KASIR' || u.role === 'ADMIN')
+            );
+            if (matched) isMatchedUser = true;
+          }
+        }
+      } catch (e) {}
 
-    if (isValidKasir) {
-      resetRateLimit('seblak48_kasir');
-      setLoginError('');
-      onLoginSuccess();
-    } else {
-      const res = recordFailedAttempt('seblak48_kasir');
-      setRateLimit(res);
-      if (res.isLocked) {
-        setLoginError('Terlalu banyak percobaan gagal (3x). Akses kasir di perangkat ini dibatasi selama 1 menit.');
+      // 3. Kredensial Kasir fallback offline
+      const isValidKasir =
+        isMatchedUser ||
+        ((emailTrim === 'kasir@seblak48.id' ||
+          emailTrim === 'kasir' ||
+          emailTrim === 'kasir1' ||
+          emailTrim === 'admin@seblak48.id') &&
+          (passTrim === 'kasir48' || passTrim === 'seblak48' || passTrim === 'kasir123'));
+
+      if (isValidKasir) {
+        resetRateLimit('seblak48_kasir');
+        setLoginError('');
+        onLoginSuccess();
       } else {
-        const sisa = res.maxAttempts - res.attempts;
-        setLoginError(`Email atau kata sandi kasir salah! Sisa percobaan sebelum terkunci: ${sisa}x.`);
+        const res = recordFailedAttempt('seblak48_kasir');
+        setRateLimit(res);
+        if (res.isLocked) {
+          setLoginError('Terlalu banyak percobaan gagal (3x). Akses kasir di perangkat ini dibatasi selama 1 menit.');
+        } else {
+          const sisa = res.maxAttempts - res.attempts;
+          setLoginError(`Email atau kata sandi kasir salah! Sisa percobaan sebelum terkunci: ${sisa}x.`);
+        }
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -231,15 +257,24 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
             <button
               type="submit"
-              disabled={rateLimit.isLocked}
+              disabled={rateLimit.isLocked || isSubmitting}
               className="w-full py-3 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 active:scale-99 text-white font-black text-xs sm:text-sm shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <LogIn className="w-4 h-4" />
-              <span>
-                {rateLimit.isLocked
-                  ? `Terkunci (${rateLimit.remainingSeconds}s)`
-                  : 'Masuk ke Kasir'}
-              </span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Memverifikasi...</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" />
+                  <span>
+                    {rateLimit.isLocked
+                      ? `Terkunci (${rateLimit.remainingSeconds}s)`
+                      : 'Masuk ke Kasir'}
+                  </span>
+                </>
+              )}
             </button>
           </form>
         </motion.div>

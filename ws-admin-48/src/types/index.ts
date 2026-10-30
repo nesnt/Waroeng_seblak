@@ -101,7 +101,7 @@ export interface UserAccount {
   id: string;
   username: string;
   fullName: string;
-  password: string;
+  password?: string;
   role: UserRole;
   status?: UserAccountStatus;
   createdAt: string;

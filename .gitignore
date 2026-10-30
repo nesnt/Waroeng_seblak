@@ -1,0 +1,23 @@
+# Environment variables (Strict Security Policy)
+.env*
+!.env.example
+
+# Planning folder (Excluded from git tracking)
+planning/
+
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Production build outputs
+dist/
+*/dist/
+build/
+*/build/
+
+# Logs
+*.log
+
+# System & Editor
+.DS_Store
+Thumbs.db
