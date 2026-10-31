@@ -34,9 +34,9 @@ export const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 10;
 
-  // Batas tanggal dari tahun 2020 sampai hari ini
+  // Batas tanggal dari tahun 2020 sampai hari ini (dinamis)
   const minDateStr = '2020-01-01';
-  const maxDateStr = '2026-10-19';
+  const maxDateStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
   // Selected for detail drawer / modal
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
@@ -53,14 +53,12 @@ export const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
       // Payment
       const matchPayment = selectedPayment === 'Semua' || tx.paymentMethod === selectedPayment;
 
-      // Date Filter (2020 s/d Hari Ini)
-      const txDateStr = tx.date.split('T')[0];
+      // Date Filter: jika pengguna memilih tanggal tertentu, filter persis tanggal tersebut
+      const txDateStr = tx.date ? tx.date.split('T')[0] : '';
 
       let matchDate = true;
       if (selectedDate) {
         matchDate = txDateStr === selectedDate;
-      } else {
-        matchDate = txDateStr >= minDateStr && txDateStr <= maxDateStr;
       }
 
       return matchSearch && matchPayment && matchDate;

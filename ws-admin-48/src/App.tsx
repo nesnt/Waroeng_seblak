@@ -21,6 +21,7 @@ import {
   getTransactions,
   getSettings,
   saveSettings,
+  clearAllData,
   resetToDefaultData,
   fetchIngredientsFromSupabase,
   fetchMenuItemsFromSupabase,
@@ -36,13 +37,10 @@ import { TransactionHistoryView } from './components/TransactionHistoryView';
 import { SalesReportView } from './components/SalesReportView';
 import { SettingsView } from './components/SettingsView';
 import { ReceiptModal } from './components/ReceiptModal';
-import { AccountManagementModal } from './components/AccountManagementModal';
 import {
   verifyAdminLogin,
-  registerSupabaseAdmin,
   checkAdminSession,
   logoutAdmin,
-  validatePasswordStrength,
 } from './services/accountService';
 import {
   Flame,
@@ -56,9 +54,6 @@ import {
   Moon,
   AlertCircle,
   Clock,
-  UserPlus,
-  Check,
-  User,
   Loader2,
 } from 'lucide-react';
 import { getRateLimitStatus, recordFailedAttempt, resetRateLimit } from './utils/authRateLimit';
@@ -79,37 +74,10 @@ export default function App() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string>('');
   const [rateLimit, setRateLimit] = useState(() => getRateLimitStatus('seblak48_admin'));
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [regFullName, setRegFullName] = useState<string>('');
-  const [regEmail, setRegEmail] = useState<string>('');
-  const [regPassword, setRegPassword] = useState<string>('');
-  const [showRegPassword, setShowRegPassword] = useState<boolean>(false);
-  const [regSuccessMsg, setRegSuccessMsg] = useState<string>('');
   const [isSubmittingAuth, setIsSubmittingAuth] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>('beranda');
   const [receiptTransaction, setReceiptTransaction] = useState<Transaction | null>(null);
   const [targetQuickRestockId, setTargetQuickRestockId] = useState<string | null>(null);
-
-  // Easter Egg: Buka Modal Manajemen Akun dengan klik logo di kiri atas 5x
-  const [secretClickCount, setSecretClickCount] = useState<number>(0);
-  const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
-  const lastClickTimeRef = useRef<number>(0);
-
-  const handleSecretIconClick = () => {
-    const now = Date.now();
-    let newCount = 1;
-    if (now - lastClickTimeRef.current <= 3000) {
-      newCount = secretClickCount + 1;
-    }
-    lastClickTimeRef.current = now;
-
-    if (newCount >= 5) {
-      setIsAccountModalOpen(true);
-      setSecretClickCount(0);
-    } else {
-      setSecretClickCount(newCount);
-    }
-  };
 
   // Timer cooldown lockout rate limit
   useEffect(() => {
@@ -149,11 +117,25 @@ export default function App() {
     const unsubIng = subscribeToIngredients(setIngredients);
     const unsubTx = subscribeToTransactions(setTransactions);
 
+    // Sinkronisasi berkala (polling setiap 8 detik sebagai pengaman realtime WebSocket)
+    const pollInterval = setInterval(() => {
+      fetchTransactionsFromSupabase().then(setTransactions);
+      fetchIngredientsFromSupabase().then(setIngredients);
+    }, 8000);
+
     return () => {
       unsubIng();
       unsubTx();
+      clearInterval(pollInterval);
     };
   }, []);
+
+  // Segera refetch transaksi dari cloud saat admin berpindah ke tab Ringkasan, Riwayat, atau Laporan
+  useEffect(() => {
+    if (activeTab === 'beranda' || activeTab === 'riwayat' || activeTab === 'laporan') {
+      fetchTransactionsFromSupabase().then(setTransactions);
+    }
+  }, [activeTab]);
 
   // Sync settings with DOM (Dark Mode and Text Scale)
   useEffect(() => {
@@ -235,6 +217,15 @@ export default function App() {
     handleSaveSettings(updated);
   };
 
+  // Kosongkan seluruh data dummy (Mulai dari Nol, baik lokal maupun di Supabase)
+  const handleClearAllData = async () => {
+    setIngredients([]);
+    setMenuItems([]);
+    setTransactions([]);
+    await clearAllData();
+    refreshData();
+  };
+
   // Reset to default dummy demo
   const handleResetAllData = () => {
     resetToDefaultData();
@@ -263,7 +254,6 @@ export default function App() {
 
     setIsSubmittingAuth(true);
     setLoginError('');
-    setRegSuccessMsg('');
 
     try {
       // Verifikasi kredensial akun Pengelola / Admin via Supabase Auth
@@ -295,77 +285,10 @@ export default function App() {
     }
   };
 
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError('');
-    setRegSuccessMsg('');
-
-    const pwdCheck = validatePasswordStrength(regPassword);
-    if (!pwdCheck.isValid) {
-      setLoginError(`Kata sandi belum memenuhi syarat: ${pwdCheck.errors.join(', ')}.`);
-      return;
-    }
-
-    setIsSubmittingAuth(true);
-    try {
-      const regRes = await registerSupabaseAdmin({
-        email: regEmail,
-        password: regPassword,
-        fullName: regFullName,
-        role: 'ADMIN',
-      });
-
-      if (!regRes.success) {
-        setLoginError(regRes.error || 'Pendaftaran admin di Supabase gagal.');
-        return;
-      }
-
-      if (regRes.session) {
-        sessionStorage.setItem('seblak48_admin_session', 'true');
-        handleSaveSettings({
-          ...settings,
-          userName: regFullName,
-          userRole: 'Administrator',
-          userEmail: regEmail,
-        });
-        setIsLoggedIn(true);
-      } else {
-        setRegSuccessMsg(
-          'Akun Master Admin berhasil didaftarkan di Supabase Auth! Silakan masuk dengan kredensial tersebut.'
-        );
-        setAuthMode('login');
-        setLoginEmail(regEmail);
-        setLoginPassword('');
-      }
-    } finally {
-      setIsSubmittingAuth(false);
-    }
-  };
-
   // HALAMAN LOGIN ADMIN (Dilindungi Rate Limit 3x Gagal & Cooldown 1 Menit)
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-stone-100 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col justify-center items-center p-4 relative transition-colors duration-200">
-        {/* Tombol Rahasia Icon Kiri Atas (Klik 5x untuk Kelola Akun) */}
-        <button
-          type="button"
-          onClick={handleSecretIconClick}
-          className="fixed top-4 left-4 p-2 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 shadow-xs hover:bg-stone-50 dark:hover:bg-stone-800 transition cursor-pointer flex items-center gap-2 group select-none active:scale-95 z-50"
-          title="Waroeng Seblak 48 (Klik 5x untuk kelola akun)"
-        >
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 text-white flex items-center justify-center shadow-xs">
-            <Flame className="w-5 h-5 fill-white group-hover:scale-110 transition-transform" />
-          </div>
-          <span className="font-extrabold text-xs text-stone-800 dark:text-stone-200 hidden sm:inline">
-            {settings.storeName}
-          </span>
-          {secretClickCount > 0 && secretClickCount < 5 && (
-            <span className="text-[10px] font-bold text-orange-600 bg-orange-50 dark:bg-orange-950/50 px-1.5 py-0.5 rounded-full border border-orange-200 dark:border-orange-900 animate-pulse">
-              {secretClickCount}/5
-            </span>
-          )}
-        </button>
-
         {/* Tombol Mode Gelap/Terang */}
         <button
           type="button"
@@ -379,11 +302,7 @@ export default function App() {
         <div className="w-full max-w-md bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-xl overflow-hidden">
           {/* Header Banner Login */}
           <div className="bg-gradient-to-r from-orange-600 via-amber-600 to-red-600 p-6 text-white text-center space-y-2">
-            <div
-              onClick={handleSecretIconClick}
-              className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-xs text-white flex items-center justify-center mx-auto shadow-md border border-white/25 cursor-pointer active:scale-95 transition-transform"
-              title="Klik 5x untuk Buka Manajemen Akun"
-            >
+            <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-xs text-white flex items-center justify-center mx-auto shadow-md border border-white/25 select-none">
               <Flame className="w-8 h-8 fill-white" />
             </div>
             <div>
@@ -400,50 +319,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Tab Pemilihan: Masuk vs Daftar Admin Baru di Supabase */}
-          <div className="flex border-b border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-950/60 p-1.5 gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('login');
-                setLoginError('');
-                setRegSuccessMsg('');
-              }}
-              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                authMode === 'login'
-                  ? 'bg-white dark:bg-stone-800 text-orange-600 dark:text-orange-400 shadow-xs'
-                  : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'
-              }`}
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Masuk Admin</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('register');
-                setLoginError('');
-                setRegSuccessMsg('');
-              }}
-              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                authMode === 'register'
-                  ? 'bg-white dark:bg-stone-800 text-orange-600 dark:text-orange-400 shadow-xs'
-                  : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Daftar Master Admin</span>
-            </button>
-          </div>
-
-          {/* Feedback Success Message */}
-          {regSuccessMsg && (
-            <div className="m-5 mb-0 p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs flex items-start gap-2.5 font-medium animate-in fade-in">
-              <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
-              <div className="leading-relaxed">{regSuccessMsg}</div>
-            </div>
-          )}
-
           {/* Feedback Error Message */}
           {loginError && !rateLimit.isLocked && (
             <div className="m-5 mb-0 p-3.5 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-xs flex items-start gap-2 font-bold animate-in fade-in">
@@ -452,251 +327,93 @@ export default function App() {
             </div>
           )}
 
-          {authMode === 'login' ? (
-            /* FORM LOGIN ADMIN */
-            <form onSubmit={handleLoginSubmit} className="p-6 space-y-4">
-              {/* Alert Cooldown / Rate Limit Lockout */}
-              {rateLimit.isLocked && (
-                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800/80 text-amber-900 dark:text-amber-200 text-xs space-y-1.5 animate-pulse">
-                  <div className="flex items-center gap-2 font-black text-amber-800 dark:text-amber-300">
-                    <Clock className="w-4 h-4 shrink-0 text-amber-600" />
-                    <span>Akses Terkunci Sementara (Cooldown)</span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed">
-                    Perangkat telah gagal melakukan login 3 kali. Mohon tunggu{' '}
-                    <strong className="text-amber-700 dark:text-amber-300 font-black text-sm">
-                      {rateLimit.remainingSeconds} detik
-                    </strong>{' '}
-                    sebelum mencoba lagi.
-                  </p>
+          {/* FORM LOGIN ADMIN */}
+          <form onSubmit={handleLoginSubmit} className="p-6 space-y-4">
+            {/* Alert Cooldown / Rate Limit Lockout */}
+            {rateLimit.isLocked && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800/80 text-amber-900 dark:text-amber-200 text-xs space-y-1.5 animate-pulse">
+                <div className="flex items-center gap-2 font-black text-amber-800 dark:text-amber-300">
+                  <Clock className="w-4 h-4 shrink-0 text-amber-600" />
+                  <span>Akses Terkunci Sementara (Cooldown)</span>
                 </div>
-              )}
-
-              <div>
-                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
-                  Email / Username Admin
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="admin@seblak48.id"
-                    disabled={rateLimit.isLocked || isSubmittingAuth}
-                    className="w-full text-xs sm:text-sm py-2.5 pl-10 pr-3.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
-                  Kata Sandi
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="Masukkan kata sandi..."
-                    disabled={rateLimit.isLocked || isSubmittingAuth}
-                    className="w-full text-xs sm:text-sm py-2.5 pl-10 pr-10 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    disabled={rateLimit.isLocked || isSubmittingAuth}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer disabled:opacity-50"
-                    title={showPassword ? 'Sembunyikan Sandi' : 'Lihat Sandi'}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={rateLimit.isLocked || isSubmittingAuth}
-                className="w-full py-3 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 active:scale-99 text-white font-black text-xs sm:text-sm shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmittingAuth ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Memverifikasi ke Supabase Cloud...</span>
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="w-4 h-4" />
-                    <span>
-                      {rateLimit.isLocked
-                        ? `Terkunci (${rateLimit.remainingSeconds}s)`
-                        : 'Masuk ke Dashboard Admin'}
-                    </span>
-                  </>
-                )}
-              </button>
-
-              <div className="pt-2 text-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode('register');
-                    setLoginError('');
-                  }}
-                  className="text-xs text-orange-600 dark:text-orange-400 hover:underline font-semibold cursor-pointer"
-                >
-                  Belum punya akun di Supabase? Buat Master Admin baru →
-                </button>
-              </div>
-            </form>
-          ) : (
-            /* FORM REGISTRASI MASTER ADMIN SUPABASE */
-            <form onSubmit={handleRegisterSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
-                  Nama Lengkap Admin
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={regFullName}
-                    onChange={(e) => setRegFullName(e.target.value)}
-                    placeholder="Contoh: Budi Santoso (Owner)"
-                    disabled={isSubmittingAuth}
-                    className="w-full text-xs sm:text-sm py-2.5 pl-10 pr-3.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500 disabled:opacity-50"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
-                  Email Akun Admin
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="email"
-                    value={regEmail}
-                    onChange={(e) => setRegEmail(e.target.value)}
-                    placeholder="admin@seblak48.id"
-                    disabled={isSubmittingAuth}
-                    className="w-full text-xs sm:text-sm py-2.5 pl-10 pr-3.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500 disabled:opacity-50"
-                    required
-                  />
-                </div>
-                <p className="text-[10px] text-stone-500 mt-1">
-                  Email ini akan didaftarkan resmi ke layanan autentikasi Supabase Cloud.
+                <p className="text-[11px] leading-relaxed">
+                  Perangkat telah gagal melakukan login 3 kali. Mohon tunggu{' '}
+                  <strong className="text-amber-700 dark:text-amber-300 font-black text-sm">
+                    {rateLimit.remainingSeconds} detik
+                  </strong>{' '}
+                  sebelum mencoba lagi.
                 </p>
               </div>
+            )}
 
-              <div>
-                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
-                  Kata Sandi Baru
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type={showRegPassword ? 'text' : 'password'}
-                    value={regPassword}
-                    onChange={(e) => setRegPassword(e.target.value)}
-                    placeholder="Minimal 8 karakter, 1 kapital, 1 simbol..."
-                    disabled={isSubmittingAuth}
-                    className="w-full text-xs sm:text-sm py-2.5 pl-10 pr-10 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500 disabled:opacity-50"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowRegPassword(!showRegPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer"
-                  >
-                    {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-
-                {/* Real-time Password Checklist */}
-                {regPassword.length > 0 && (
-                  <div className="mt-2 p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-1 text-[11px]">
-                    <div className="font-bold text-stone-600 dark:text-stone-300 mb-1">
-                      Syarat Kata Sandi:
-                    </div>
-                    <div
-                      className={`flex items-center gap-1.5 ${
-                        regPassword.length >= 8
-                          ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
-                          : 'text-stone-400'
-                      }`}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Minimal 8 karakter ({regPassword.length}/8)</span>
-                    </div>
-                    <div
-                      className={`flex items-center gap-1.5 ${
-                        /[A-Z]/.test(regPassword)
-                          ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
-                          : 'text-stone-400'
-                      }`}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Minimal 1 huruf kapital (A-Z)</span>
-                    </div>
-                    <div
-                      className={`flex items-center gap-1.5 ${
-                        /[^A-Za-z0-9]/.test(regPassword)
-                          ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
-                          : 'text-stone-400'
-                      }`}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Minimal 1 simbol / karakter khusus (!@#$%^&*)</span>
-                    </div>
-                  </div>
-                )}
+            <div>
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
+                Email / Username Admin
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="admin@seblak48.id"
+                  disabled={rateLimit.isLocked || isSubmittingAuth}
+                  className="w-full text-xs sm:text-sm py-2.5 pl-10 pr-3.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  required
+                />
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={isSubmittingAuth}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 active:scale-99 text-white font-black text-xs sm:text-sm shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer mt-2 disabled:opacity-50"
-              >
-                {isSubmittingAuth ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Mendaftarkan ke Supabase...</span>
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4" />
-                    <span>Daftarkan Master Admin</span>
-                  </>
-                )}
-              </button>
-
-              <div className="pt-2 text-center">
+            <div>
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1.5">
+                Kata Sandi
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="Masukkan kata sandi..."
+                  disabled={rateLimit.isLocked || isSubmittingAuth}
+                  className="w-full text-xs sm:text-sm py-2.5 pl-10 pr-10 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  required
+                />
                 <button
                   type="button"
-                  onClick={() => {
-                    setAuthMode('login');
-                    setLoginError('');
-                  }}
-                  className="text-xs text-stone-500 hover:text-stone-800 dark:hover:text-stone-300 font-semibold cursor-pointer"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={rateLimit.isLocked || isSubmittingAuth}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer disabled:opacity-50"
+                  title={showPassword ? 'Sembunyikan Sandi' : 'Lihat Sandi'}
                 >
-                  Sudah punya akun? Kembali ke form login →
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </form>
-          )}
-        </div>
+            </div>
 
-        {/* Modal Rahasia Manajemen Akun (Terbuka via klik icon 5x) */}
-        <AccountManagementModal
-          isOpen={isAccountModalOpen}
-          onClose={() => setIsAccountModalOpen(false)}
-        />
+            <button
+              type="submit"
+              disabled={rateLimit.isLocked || isSubmittingAuth}
+              className="w-full py-3 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 active:scale-99 text-white font-black text-xs sm:text-sm shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmittingAuth ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Memverifikasi ke Supabase Cloud...</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" />
+                  <span>
+                    {rateLimit.isLocked
+                      ? `Terkunci (${rateLimit.remainingSeconds}s)`
+                      : 'Masuk ke Dashboard Admin'}
+                  </span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
       </div>
     );
   }
@@ -712,7 +429,6 @@ export default function App() {
         onUpdateSettings={handleSaveSettings}
         onLogout={handleLogout}
         lowStockCount={lowStockCount}
-        onLogoClick={handleSecretIconClick}
       />
 
       {/* Main Content Area */}
@@ -726,7 +442,6 @@ export default function App() {
           onUpdateSettings={handleSaveSettings}
           onLogout={handleLogout}
           lowStockCount={lowStockCount}
-          onLogoClick={handleSecretIconClick}
         />
 
         {/* View Container */}
@@ -772,6 +487,7 @@ export default function App() {
               settings={settings}
               onSaveSettings={handleSaveSettings}
               onResetAllData={handleResetAllData}
+              onClearAllData={handleClearAllData}
             />
           )}
         </main>
@@ -782,12 +498,6 @@ export default function App() {
         transaction={receiptTransaction}
         settings={settings}
         onClose={() => setReceiptTransaction(null)}
-      />
-
-      {/* MODAL MANAJEMEN AKUN (Akses Rahasia via klik logo 5x) */}
-      <AccountManagementModal
-        isOpen={isAccountModalOpen}
-        onClose={() => setIsAccountModalOpen(false)}
       />
     </div>
   );

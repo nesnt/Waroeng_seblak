@@ -38,11 +38,12 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
   // Tab utama: Harian / Mingguan / Bulanan
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
-  // State sub-filter (Default ke 19 Oktober 2026, Minggu ke-3)
-  const [selectedDay, setSelectedDay] = useState<number>(19);
-  const [selectedWeek, setSelectedWeek] = useState<number>(3);
-  const [selectedMonth, setSelectedMonth] = useState<number>(9); // 9 = Oktober (0-indexed)
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  // State sub-filter: Dinamis default ke tanggal hari ini
+  const now = new Date();
+  const [selectedDay, setSelectedDay] = useState<number>(() => now.getDate());
+  const [selectedWeek, setSelectedWeek] = useState<number>(() => Math.min(4, Math.ceil(now.getDate() / 7)));
+  const [selectedMonth, setSelectedMonth] = useState<number>(() => now.getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(() => now.getFullYear());
 
   // Hitung jumlah hari dalam bulan & tahun yang dipilih
   const daysInSelectedMonth = useMemo(() => {

@@ -103,14 +103,14 @@ function mapDbBowlOrderToFrontend(row: any): BowlOrder {
 
 function mapDbTransactionToFrontend(row: any): Transaction {
   const items = (row.transaction_items || []).map((it: any) => ({
-    menuItemId: it.menu_item_id,
-    menuItemName: it.menu_items?.name || 'Item Seblak',
+    menuItemId: it.menu_item_id || 'menu-prasmanan',
+    menuItemName: it.menu_name || it.menu_items?.name || 'Paket Seblak Prasmanan',
     quantity: Number(it.quantity ?? 1),
     price: Number(it.base_price ?? 0),
     levelPedas: Number(it.spicy_level ?? 0),
     toppings: (it.transaction_item_toppings || []).map((tp: any) => ({
-      id: tp.topping_id,
-      name: tp.topping_options?.name || 'Topping',
+      id: tp.topping_id || 'top-custom',
+      name: tp.topping_name || tp.topping_options?.name || 'Topping',
       price: Number(tp.price ?? 0),
     })),
     subtotal: Number(it.subtotal ?? 0),
@@ -144,8 +144,8 @@ export async function fetchIngredientsFromSupabase(): Promise<Ingredient[]> {
       .select('*, categories(name)')
       .order('name', { ascending: true });
 
-    if (error) throw error;
-    if (data && data.length > 0) {
+    if (error) return getIngredients();
+    if (Array.isArray(data)) {
       const mapped = data.map(mapDbIngredientToFrontend);
       localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(mapped));
       return mapped;
@@ -165,8 +165,8 @@ export async function fetchMenuItemsFromSupabase(): Promise<MenuItem[]> {
       .select('*, categories(name), menu_recipes(*)')
       .order('name', { ascending: true });
 
-    if (error) throw error;
-    if (data && data.length > 0) {
+    if (error) return getMenuItems();
+    if (Array.isArray(data)) {
       const mapped = data.map(mapDbMenuItemToFrontend);
       localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(mapped));
       return mapped;
@@ -203,11 +203,22 @@ export async function fetchBowlOrdersFromSupabase(): Promise<BowlOrder[]> {
 export async function fetchTransactionsFromSupabase(): Promise<Transaction[]> {
   if (!isSupabaseConfigured()) return getTransactions();
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('transactions')
-      .select('*, transaction_items(*, menu_items(name), transaction_item_toppings(*, topping_options(name)))')
+      .select('*, transaction_items(*, transaction_item_toppings(*))')
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(200);
+
+    if (error || !data) {
+      console.warn('⚠️ [Supabase] Join transaction_items gagal, mencoba query tabel transactions langsung:', error?.message);
+      const fallback = await supabase
+        .from('transactions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) throw error;
     if (data) {
@@ -297,15 +308,18 @@ export function subscribeToIngredients(onUpdate: (ingredients: Ingredient[]) => 
 export function getIngredients(): Ingredient[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.INGREDIENTS);
-    if (!raw) {
-      const initial = [...INITIAL_INGREDIENTS];
-      localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(initial));
-      return initial;
+    if (raw !== null) {
+      return JSON.parse(raw);
     }
-    return JSON.parse(raw);
+    if (localStorage.getItem('seblak48_data_cleared') === 'true') {
+      return [];
+    }
+    const initial = [...INITIAL_INGREDIENTS];
+    localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(initial));
+    return initial;
   } catch (e) {
     console.error('Gagal membaca data bahan:', e);
-    return INITIAL_INGREDIENTS;
+    return [];
   }
 }
 
@@ -373,15 +387,18 @@ export function adjustStock(
 export function getMenuItems(): MenuItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.MENU_ITEMS);
-    if (!raw) {
-      const initial = [...INITIAL_MENU_ITEMS];
-      localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(initial));
-      return initial;
+    if (raw !== null) {
+      return JSON.parse(raw);
     }
-    return JSON.parse(raw);
+    if (localStorage.getItem('seblak48_data_cleared') === 'true') {
+      return [];
+    }
+    const initial = [...INITIAL_MENU_ITEMS];
+    localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(initial));
+    return initial;
   } catch (e) {
     console.error('Gagal membaca data menu:', e);
-    return INITIAL_MENU_ITEMS;
+    return [];
   }
 }
 
@@ -407,14 +424,18 @@ export function deleteMenuItem(id: string): void {
 export function getTransactions(): Transaction[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
-      return INITIAL_TRANSACTIONS;
+    if (raw !== null) {
+      return JSON.parse(raw);
     }
-    return JSON.parse(raw);
+    if (localStorage.getItem('seblak48_data_cleared') === 'true') {
+      return [];
+    }
+    const initial = [...INITIAL_TRANSACTIONS];
+    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(initial));
+    return initial;
   } catch (e) {
     console.error('Gagal membaca transaksi:', e);
-    return INITIAL_TRANSACTIONS;
+    return [];
   }
 }
 
@@ -422,8 +443,8 @@ export function createTransaction(
   txData: Omit<Transaction, 'id' | 'invoiceNumber' | 'date' | 'status'>
 ): Transaction {
   const currentTransactions = getTransactions();
-  const nextNumber = currentTransactions.length + 1001;
-  const newInvoice = `TR-48-${nextNumber}`;
+  const randSuffix = Math.floor(1000 + Math.random() * 9000);
+  const newInvoice = `TR-48-${Date.now().toString().slice(-4)}${randSuffix}`;
   const nowIso = new Date().toISOString();
 
   const newTransaction: Transaction = {
@@ -497,23 +518,25 @@ export function createTransaction(
 
   // Kirim transaksi ke Supabase
   if (isSupabaseConfigured()) {
+    const isDibungkus = newTransaction.notes && newTransaction.notes.toLowerCase().includes('dibungkus');
     supabase
       .from('transactions')
       .insert({
         invoice_number: newInvoice,
-        customer_name: newTransaction.customerName,
-        total_amount: newTransaction.totalAmount,
-        payment_method: newTransaction.paymentMethod,
-        cash_received: newTransaction.cashReceived,
-        change_amount: newTransaction.change ?? 0,
-        status: newTransaction.status,
-        notes: newTransaction.notes,
+        customer_name: newTransaction.customerName || 'Pelanggan',
+        dine_type: isDibungkus ? 'Dibungkus' : 'Makan di Sini',
+        total_amount: Number(newTransaction.totalAmount) || 0,
+        payment_method: newTransaction.paymentMethod || 'Tunai',
+        cash_received: newTransaction.cashReceived != null ? Number(newTransaction.cashReceived) : Number(newTransaction.totalAmount) || 0,
+        change_amount: newTransaction.change != null ? Number(newTransaction.change) : 0,
+        status: newTransaction.status || 'Selesai',
+        notes: newTransaction.notes || '',
       })
       .select('id')
       .single()
       .then(async ({ data: txRow, error }) => {
         if (error) {
-          console.error('⚠️ [Supabase] Gagal menyimpan transaksi kasir:', error);
+          console.error('⚠️ [Supabase] Gagal menyimpan transaksi kasir:', error.message);
           return;
         }
         if (txRow && newTransaction.items && newTransaction.items.length > 0) {
@@ -525,11 +548,11 @@ export function createTransaction(
                 transaction_id: txRow.id,
                 menu_item_id: isMenuUuid ? item.menuItemId : null,
                 menu_name: item.menuItemName,
-                quantity: item.quantity,
-                base_price: item.price,
-                spicy_level: item.levelPedas,
-                subtotal: item.subtotal,
-                item_notes: item.notes,
+                quantity: Number(item.quantity) || 1,
+                base_price: Number(item.price) || 0,
+                spicy_level: Math.min(6, Math.max(0, Number(item.levelPedas) || 0)),
+                subtotal: Number(item.subtotal) || 0,
+                item_notes: item.notes || '',
               })
               .select('id')
               .single();
@@ -540,7 +563,7 @@ export function createTransaction(
                 return {
                   transaction_item_id: itemRow.id,
                   topping_id: isTopUuid ? top.id : null,
-                  price: top.price,
+                  price: Number(top.price) || 0,
                   quantity: 1,
                 };
               });
@@ -700,7 +723,34 @@ export function completeBowlOrder(id: string, invoiceNumber?: string): void {
   }
 }
 
+export async function clearAllData(): Promise<void> {
+  localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.STOCK_LOGS, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.BOWL_ORDERS, JSON.stringify([]));
+  localStorage.setItem('seblak48_data_cleared', 'true');
+
+  if (isSupabaseConfigured()) {
+    try {
+      await supabase.from('transaction_item_toppings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('transaction_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('stock_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('bowl_order_drinks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('bowl_order_toppings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('bowl_orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('menu_recipes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('ingredients').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('menu_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    } catch (err) {
+      console.warn('⚠️ Gagal menghapus data di Supabase:', err);
+    }
+  }
+}
+
 export function resetToDefaultData(): void {
+  localStorage.removeItem('seblak48_data_cleared');
   localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(INITIAL_INGREDIENTS));
   localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(INITIAL_MENU_ITEMS));
   localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));

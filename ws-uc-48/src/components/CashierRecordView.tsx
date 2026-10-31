@@ -584,7 +584,8 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
   const pendingBowlOrders = bowlOrders.filter((b) => b.status === 'menunggu_hitung');
 
   const filteredAutoBowls = pendingBowlOrders.filter((b) =>
-    b.bowlNumber.toLowerCase().includes(autoSearchQuery.trim().toLowerCase())
+    b.bowlNumber.toLowerCase().includes(autoSearchQuery.trim().toLowerCase()) ||
+    (b.customerName && b.customerName.toLowerCase().includes(autoSearchQuery.trim().toLowerCase()))
   );
 
   const selectedSpicyInfo = SPICY_LEVELS.find((s) => s.level === spicyLevel) || SPICY_LEVELS[2];
@@ -775,21 +776,21 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                     Pencatatan Otomatis
                   </span>
                   <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100">
-                    Pilih Nomor Mangkuk
+                    Pilih Mangkuk Pesanan
                   </h2>
                   <p className="text-xs text-stone-500 dark:text-stone-400">
-                    Klik nomor mangkuk untuk langsung masuk ke hitung topping.
+                    Pilih mangkuk berdasarkan nomor antrean atau nama pemesan untuk konfirmasi pesanan.
                   </p>
                 </div>
 
-                {/* Kolom Pencarian Nomor Mangkuk */}
+                {/* Kolom Pencarian Nomor Mangkuk & Nama Pemesan */}
                 <div className="relative">
                   <Search className="w-4 h-4 text-stone-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={autoSearchQuery}
                     onChange={(e) => setAutoSearchQuery(e.target.value)}
-                    placeholder="Cari nomor mangkuk (contoh: 12)..."
+                    placeholder="Cari nomor mangkuk atau nama pemesan (contoh: 12 atau Nabil)..."
                     className="w-full text-xs sm:text-sm font-semibold py-3 pl-11 pr-10 rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-emerald-500"
                   />
                   {autoSearchQuery && (
@@ -803,20 +804,39 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                   )}
                 </div>
 
-                {/* Grid Nomor Mangkuk Saja */}
+                {/* Grid Nomor Mangkuk & Nama Pemesan */}
                 {filteredAutoBowls.length > 0 ? (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                     {filteredAutoBowls.map((order) => (
                       <button
                         key={order.id}
                         type="button"
                         onClick={() => handleSelectAutoBowl(order)}
-                        className="py-5 px-3 rounded-2xl border-2 border-stone-200 dark:border-stone-800 hover:border-emerald-500 dark:hover:border-emerald-500 bg-stone-50/70 dark:bg-stone-800/50 hover:bg-emerald-600 hover:text-white text-stone-900 dark:text-stone-100 flex flex-col items-center justify-center gap-1 transition group cursor-pointer shadow-2xs"
+                        className="p-3.5 sm:p-4 rounded-2xl border-2 border-stone-200 dark:border-stone-800 hover:border-emerald-500 dark:hover:border-emerald-500 bg-stone-50/70 dark:bg-stone-800/50 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 text-stone-900 dark:text-stone-100 flex flex-col items-start justify-between gap-3 transition group cursor-pointer shadow-2xs text-left"
                       >
-                        <Soup className="w-6 h-6 text-emerald-600 dark:text-emerald-400 group-hover:text-white transition-colors" />
-                        <span className="text-xl sm:text-2xl font-black tabular-nums tracking-tight">
-                          #{order.bowlNumber}
-                        </span>
+                        <div className="w-full flex items-center justify-between gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-black text-xs sm:text-sm tabular-nums">
+                            <Soup className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <span>#{order.bowlNumber}</span>
+                          </span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-200/80 dark:bg-stone-700/60 text-stone-600 dark:text-stone-300 truncate max-w-[90px]">
+                            {order.dineType}
+                          </span>
+                        </div>
+
+                        <div className="w-full min-w-0">
+                          <span className="text-[10px] font-semibold text-stone-400 dark:text-stone-500 block uppercase tracking-wider">
+                            Pemesan:
+                          </span>
+                          <h4 className="font-black text-xs sm:text-sm text-stone-900 dark:text-stone-100 truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                            {order.customerName || 'Pelanggan'}
+                          </h4>
+                          <div className="flex items-center gap-1.5 mt-1 text-[10px] sm:text-[11px] text-stone-500 dark:text-stone-400 font-medium truncate">
+                            <span>Lvl {order.spicyLevel}</span>
+                            <span>•</span>
+                            <span className="truncate">{order.brothType}</span>
+                          </div>
+                        </div>
                       </button>
                     ))}
                   </div>

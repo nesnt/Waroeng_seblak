@@ -40,19 +40,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return localStorage.getItem('seblak48_hide_hero_banner') !== 'true';
   });
 
-  // Waktu hari ini (October 19, 2026 dalam konteks data/simulasi atau hari ini)
-  const todayDateStr = useMemo(() => {
-    // Ambil tanggal transaksi paling baru sebagai anchor hari operasional
-    if (transactions.length > 0) {
-      return transactions[0].date.split('T')[0];
-    }
-    return new Date().toISOString().split('T')[0];
-  }, [transactions]);
+  // Waktu hari ini (format YYYY-MM-DD zona waktu lokal)
+  const localTodayStr = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }, []);
 
   // Transaksi hari ini
   const todayTransactions = useMemo(() => {
-    return transactions.filter((t) => t.date.startsWith(todayDateStr));
-  }, [transactions, todayDateStr]);
+    const matchesToday = transactions.filter((t) => {
+      if (!t.date) return false;
+      const txLocal = new Date(t.date);
+      const y = txLocal.getFullYear();
+      const m = String(txLocal.getMonth() + 1).padStart(2, '0');
+      const d = String(txLocal.getDate()).padStart(2, '0');
+      const f = `${y}-${m}-${d}`;
+      return f === localTodayStr || t.date.startsWith(localTodayStr);
+    });
+
+    if (matchesToday.length > 0) return matchesToday;
+
+    // Jika belum ada transaksi pada tanggal hari ini, gunakan tanggal transaksi terbaru
+    if (transactions.length > 0 && transactions[0].date) {
+      const anchorDate = transactions[0].date.split('T')[0];
+      return transactions.filter((t) => t.date && t.date.startsWith(anchorDate));
+    }
+
+    return [];
+  }, [transactions, localTodayStr]);
 
   // Total omset hari ini
   const todayRevenue = useMemo(() => {
@@ -61,12 +79,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Transaksi kemarin untuk komparasi persentase
   const yesterdayRevenue = useMemo(() => {
-    const yesterday = new Date(todayDateStr);
+    const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yStr = yesterday.toISOString().split('T')[0];
-    const yTxs = transactions.filter((t) => t.date.startsWith(yStr));
+    const yTxs = transactions.filter((t) => t.date && t.date.startsWith(yStr));
     return yTxs.reduce((acc, t) => acc + t.totalAmount, 0);
-  }, [transactions, todayDateStr]);
+  }, [transactions]);
 
   const revenueGrowthPct = useMemo(() => {
     if (yesterdayRevenue === 0) return 0;
@@ -111,7 +129,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const chart7DaysData = useMemo(() => {
     const labels: string[] = [];
     const values: number[] = [];
-    const anchor = new Date(todayDateStr);
+    const anchor = new Date(localTodayStr);
 
     for (let i = 6; i >= 0; i--) {
       const d = new Date(anchor);
@@ -124,7 +142,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       labels.push(label);
 
       const dayRevenue = transactions
-        .filter((t) => t.date.startsWith(dStr))
+        .filter((t) => t.date && t.date.startsWith(dStr))
         .reduce((sum, t) => sum + t.totalAmount, 0);
       values.push(dayRevenue);
     }
@@ -148,7 +166,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         },
       ],
     };
-  }, [transactions, todayDateStr]);
+  }, [transactions, localTodayStr]);
 
   return (
     <div className="space-y-6">

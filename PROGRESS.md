@@ -1,62 +1,44 @@
 # Log Perkembangan Proyek - Waroeng Seblak 48
 
-Tanggal: 30 Oktober 2026  
-Status: Berjalan Normal & Terverifikasi
+Tanggal: 31 Oktober 2026  
+Status: Berjalan Normal & Terverifikasi (Admin Port 3001, Kasir Port 3000)
 
 ---
 
-## 📌 Ringkasan Pembaruan & Fitur Baru
+## 📌 Ringkasan Pembaruan Terkini
 
-### 1. Migrasi Autentikasi ke Supabase Auth Resmi (Bcrypt Cloud Security)
-- **Menggantikan Hardcoded Frontend Authentication:**
-  - Menghapus perbandingan password mentah (*plaintext*) di sisi JavaScript peramban.
-  - Membuang penyimpanan password mentah dari `localStorage` browser demi mencegah pembobolan melalui Chrome DevTools (`F12`).
-- **Implementasi Supabase Auth (`@supabase/supabase-js`):**
-  - Menggunakan `supabase.auth.signInWithPassword({ email, password })` untuk login aman dengan enkripsi password standar server Supabase (*bcrypt*).
-  - Menyimpan token sesi (*signed JWT*) resmi Supabase secara otomatis dan persisten dengan auto-refresh token.
-  - Menambahkan pengecekan sesi aktif `supabase.auth.getSession()` saat halaman dimuat ulang sehingga admin tetap login secara aman.
-  - Mendukung fungsi `supabase.auth.signOut()` saat admin menekan tombol logout.
-- **Tab Pendaftaran Master Admin Terintegrasi:**
-  - Halaman login admin (`ws-admin-48`) kini memiliki tab **"Masuk Admin"** dan tab **"Daftar Master Admin"**.
-  - Pengelola toko dapat mendaftarkan akun admin pertama secara langsung ke Supabase Cloud dengan checklist kekuatan sandi (min 8 karakter, 1 huruf kapital, 1 simbol).
-  - Tersedia fallback aman untuk lingkungan offline lokal jika internet warung padam.
-- **Dukungan Autentikasi Kasir (`ws-uc-48`):**
-  - Portal kasir kini memverifikasi login ke Supabase Auth terlebih dahulu dengan indikator pemrosesan (*loading spinner*).
+### 1. Sinkronisasi Riwayat Transaksi & Laporan Omset ke Dashboard Admin
+- **Perbaikan Query PostgREST Supabase:**
+  - Menghilangkan dependensi relasi join `menu_items(name)` dan `topping_options(name)` yang rentan memicu error 400 schema cache di PostgREST.
+  - Memanfaatkan nama menu dan topping yang sudah tersimpan langsung di `transaction_items.menu_name`.
+  - Menambahkan strategi *resilient fallback*: jika query relasi nested item mengalami kendala, sistem otomatis fallback ke tabel transaksi utama sehingga omset dan nomor nota tidak akan pernah hilang.
+- **Perbaikan Generator Nomor Nota (Invoice):**
+  - Mengubah invoice number format menjadi `TR-48-[timestamp-suffix][random-digits]` (misal: `TR-48-28491`) agar 100% unik dan tidak pernah gagal karena bentrok *unique constraint*.
+  - Menyertakan kolom `dine_type` ('Makan di Sini' / 'Dibungkus') secara eksplisit saat insert transaksi.
+- **Perbaikan Filter Tanggal Transaksi & Omset Harian:**
+  - Mengatasi *hardcoded filter date* (`2026-10-19`) pada [TransactionHistoryView.tsx](file:///c:/code/Project_intern/seblak/ws-admin-48/src/components/TransactionHistoryView.tsx) yang sebelumnya menyaring dan menyembunyikan transaksi baru.
+  - Memperbarui [SalesReportView.tsx](file:///c:/code/Project_intern/seblak/ws-admin-48/src/components/SalesReportView.tsx) agar default sub-filternya dinamis ke tanggal hari ini (misal 31 Oktober 2026), bukan statis ke tanggal 19.
+  - Menambahkan auto-sync refetch pada [App.tsx](file:///c:/code/Project_intern/seblak/ws-admin-48/src/App.tsx) setiap kali admin berpindah tab atau secara berkala setiap 8 detik sehingga transaksi kasir langsung masuk ke layar admin.
 
-### 2. Pembersihan & Simplifikasi Pengaturan Toko
-- **Penghapusan Bagian Takaran Resep:**
-  - Menghapus bagian *"Daftar Menu & Takaran Resep Pengurang Stok"* dari antarmuka Pengaturan Warung (`SettingsView.tsx`).
-  - Menghapus komponen modal formulir menu (`MenuFormModal`), modal editor resep (`RecipeEditorModal`), dan dialog konfirmasi hapus menu yang sudah tidak diperlukan.
-  - Merapikan props pada `SettingsView` dan `App.tsx` tanpa menyisakan peringatan TypeScript.
+---
 
-### 3. Modal Rahasia Manajemen Akun (Admin & Kasir)
-- **Komponen Modal Baru (`AccountManagementModal.tsx`):**
-  - Menyediakan form pendaftaran akun baru dengan pilihan peran:
-    - **Administrator (ADMIN):** Akses penuh dashboard manajemen stok, laporan keuangan, riwayat, dan pengaturan.
-    - **Kasir (KASIR):** Akses portal pencatatan mangkuk seblak, pemilihan topping prasmanan, dan cetak struk nota.
-  - Tab *Daftar Akun Terdaftar* untuk meninjau seluruh akun aktif dengan status enkripsi password yang aman.
-- **Mekanisme Akses Rahasia (Easter Egg 5x Klik):**
-  - Modal dibuka dengan mengklik icon logo api di pojok kiri atas sebanyak **5 kali berturut-turut** (dalam jeda < 3 detik).
-  - Tersedia baik di halaman Login (`App.tsx`) maupun di Sidebar navigasi dashboard admin (`Navigation.tsx`).
+### 2. Tampilan Pilihan Mangkuk Kasir Disertai Nama Pemesan
+- **Pencarian & Kartu Mangkuk Informatif ([CashierRecordView.tsx](file:///c:/code/Project_intern/seblak/ws-uc-48/src/components/CashierRecordView.tsx)):**
+  - Pada langkah *"Pencatatan Otomatis"*, tombol pilihan mangkuk antrean kini menampilkan:
+    - **Badge Nomor Mangkuk** (misal: `#12`).
+    - **Nama Pemesan** (misal: `Nabil`).
+    - **Tipe Pesanan** (*Makan di Sini* / *Dibungkus*).
+    - **Rincian Level Pedas & Jenis Kuah** (misal: `Lvl 2 • Asin Manis`).
+  - Kolom pencarian kini mendukung pencarian nomor mangkuk **sekaligus nama pemesan**.
 
-### 4. Validasi Keamanan Kata Sandi
-- **3 Kriteria Wajib Password:**
-  - Minimal **8 karakter**.
-  - Mengandung minimal **1 huruf kapital (A-Z)**.
-  - Mengandung minimal **1 simbol / karakter khusus** (`!@#$%^&*...`).
-- **Indikator Real-time Interaktif:**
-  - Ditampilkan langsung di bawah input kata sandi dengan indikator checklist centang hijau saat pengguna mengetik.
-  - Dilengkapi validasi ganda pada sisi klien dan fungsi `validatePasswordStrength`.
+---
 
-### 5. Tombol Tutup (X) Hero Banner Dashboard
-- Menambahkan tombol tutup **(X)** di pojok kanan atas banner *"Dashboard Stok & Omset Warung"* pada `DashboardView.tsx`.
-- Status penutupan disimpan secara persisten di `localStorage` (`seblak48_hide_hero_banner: true`) sehingga tidak muncul kembali saat halaman dimuat ulang.
-
-### 6. Input Satuan Bahan Baku Read-Only
-- Mengubah isian **Satuan** pada modal tambah & edit bahan baku/topping di `InventoryView.tsx` menjadi **Read-only** (`pcs`), dilengkapi dengan atribut `cursor-not-allowed` dan label keterangan `(Otomatis / Tetap)`.
-
-### 7. Skrip Sinkronisasi Supabase Auth & DB
-- Disediakan skrip `planning/supabase_auth_setup.sql` yang siap dijalankan di Supabase SQL Editor untuk sinkronisasi otomatis `auth.users` ke tabel profil `public.users` via trigger database Postgres.
-
-### 8. Aturan Privasi & Keamanan Proyek
-- Menetapkan aturan ketat pada file `AGENTS.md` dan `GEMINI.md` yang melarang keras AI/Agent mengakses, membaca, atau menampilkan file `.env`.
+### 3. Akun Kasir Baru: Nabil
+- **Kredensial:**
+  - Nama: `Nabil`
+  - Peran: `KASIR`
+  - Email: `nabil@gmail.com`
+  - Sandi: `I2345678*`
+- **Akses:**
+  - Aktif di portal Kasir ([http://localhost:3000](http://localhost:3000)).
+  - Tersedia skrip SQL Supabase di `planning/create_kasir_nabil.sql` untuk sinkronisasi cloud permanen.

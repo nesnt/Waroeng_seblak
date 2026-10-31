@@ -27,7 +27,6 @@ interface NavigationProps {
   onUpdateSettings?: (settings: StoreSettings) => void;
   onLogout?: () => void;
   lowStockCount: number;
-  onLogoClick?: () => void;
 }
 
 const STATUS_CONFIG: Record<
@@ -65,7 +64,6 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
   onUpdateSettings,
   onLogout,
   lowStockCount,
-  onLogoClick,
 }) => {
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
@@ -95,11 +93,7 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
         <div className="space-y-6">
           {/* Brand Header */}
           <div className="flex items-center gap-3 px-2 pt-1">
-            <div
-              onClick={onLogoClick}
-              className="w-11 h-11 rounded-2xl bg-linear-to-tr from-orange-600 to-amber-500 text-white flex items-center justify-center font-black shadow-lg shadow-orange-600/30 shrink-0 cursor-pointer active:scale-95 transition-transform"
-              title="Waroeng Seblak 48 (Klik 5x untuk kelola akun)"
-            >
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-orange-600 to-amber-500 text-white flex items-center justify-center font-black shadow-lg shadow-orange-600/30 shrink-0 select-none">
               <Flame className="w-7 h-7 fill-white" />
             </div>
             <div className="min-w-0">
@@ -248,7 +242,6 @@ export const MobileNavigation: React.FC<NavigationProps> = ({
   onUpdateSettings,
   onLogout,
   lowStockCount,
-  onLogoClick,
 }) => {
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
@@ -264,9 +257,8 @@ export const MobileNavigation: React.FC<NavigationProps> = ({
         {/* Brand Kiri */}
         <div className="flex items-center gap-2 min-w-0">
           <div
-            onClick={onLogoClick}
-            className="w-8 h-8 rounded-xl bg-orange-600 text-white flex items-center justify-center font-black shadow-xs shrink-0 cursor-pointer active:scale-95 transition-transform"
-            title="Waroeng Seblak 48 (Klik 5x untuk kelola akun)"
+            className="w-8 h-8 rounded-xl bg-orange-600 text-white flex items-center justify-center font-black shadow-xs shrink-0 select-none"
+            title="Waroeng Seblak 48"
           >
             <Flame className="w-5 h-5 fill-white" />
           </div>

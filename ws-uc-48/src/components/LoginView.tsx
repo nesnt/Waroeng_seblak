@@ -104,8 +104,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
       } catch (e) {}
 
       // 3. Kredensial Kasir fallback offline
+      const isDefaultNabil =
+        (emailTrim === 'nabil@gmail.com' || emailTrim === 'nabil') &&
+        passTrim === 'I2345678*';
+
       const isValidKasir =
         isMatchedUser ||
+        isDefaultNabil ||
         ((emailTrim === 'kasir@seblak48.id' ||
           emailTrim === 'kasir' ||
           emailTrim === 'kasir1' ||

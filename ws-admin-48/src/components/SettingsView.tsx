@@ -9,18 +9,21 @@ import {
   RotateCcw,
   Check,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 
 interface SettingsViewProps {
   settings: StoreSettings;
   onSaveSettings: (settings: StoreSettings) => void;
   onResetAllData: () => void;
+  onClearAllData: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   onSaveSettings,
   onResetAllData,
+  onClearAllData,
 }) => {
   // Store info state
   const [storeName, setStoreName] = useState(settings.storeName);
@@ -29,8 +32,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [phone, setPhone] = useState(settings.phone);
   const [showSavedToast, setShowSavedToast] = useState(false);
 
-  // Reset confirmation modal
+  // Reset confirmation modals
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
 
   const handleSaveStoreProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -225,27 +229,87 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </form>
       </div>
 
-      {/* 3. Segarkan Data & Sinkronisasi Ulang */}
-      <div className="bg-stone-100 dark:bg-stone-900/40 rounded-2xl p-5 border border-dashed border-stone-300 dark:border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h4 className="font-bold text-sm text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
-            <RotateCcw className="w-4 h-4 text-stone-500" />
-            Segarkan Katalog &amp; Sinkronisasi Data
-          </h4>
-          <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-            Muat ulang data katalog bahan dan pengaturan sistem warung dari database.
-          </p>
+      {/* 3. Pengelolaan Data: Kosongkan Data vs Muat Data Contoh */}
+      <div className="space-y-3">
+        {/* Opsi 1: Kosongkan Semua Data Dummy (Mulai dari Nol) */}
+        <div className="bg-red-50/70 dark:bg-red-950/25 rounded-2xl p-5 border border-dashed border-red-300 dark:border-red-900/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h4 className="font-bold text-sm text-red-900 dark:text-red-200 flex items-center gap-1.5">
+              <Trash2 className="w-4 h-4 text-red-600" />
+              Kosongkan Semua Data Dummy (Mulai dari Nol)
+            </h4>
+            <p className="text-xs text-red-700/80 dark:text-red-300/70 mt-0.5">
+              Hapus seluruh daftar barang contoh, menu, dan riwayat transaksi sehingga Anda dapat mulai menginput data asli toko.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsClearConfirmOpen(true)}
+            className="py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition cursor-pointer shadow-xs shrink-0 flex items-center gap-1.5"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Kosongkan Data</span>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsResetConfirmOpen(true)}
-          className="py-2 px-4 rounded-xl border border-orange-300 dark:border-orange-800 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/30 text-xs font-bold transition cursor-pointer"
-        >
-          Sinkronkan Ulang Data
-        </button>
+
+        {/* Opsi 2: Muat Ulang Data Contoh */}
+        <div className="bg-stone-100 dark:bg-stone-900/40 rounded-2xl p-5 border border-dashed border-stone-300 dark:border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h4 className="font-bold text-sm text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+              <RotateCcw className="w-4 h-4 text-stone-500" />
+              Muat Ulang Data Contoh (Dummy Demo)
+            </h4>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+              Muat ulang kembali paket bahan seblak contoh dan transaksi demo jika Anda ingin melakukan uji coba tampilan.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsResetConfirmOpen(true)}
+            className="py-2.5 px-4 rounded-xl border border-stone-300 dark:border-stone-700 hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-bold transition cursor-pointer shrink-0"
+          >
+            Muat Data Contoh
+          </button>
+        </div>
       </div>
 
-      {/* MODAL: Konfirmasi Reset Data */}
+      {/* MODAL: Konfirmasi Kosongkan Semua Data */}
+      {isClearConfirmOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-stone-900 rounded-2xl max-w-sm w-full border border-stone-200 dark:border-stone-800 p-5 space-y-4 shadow-2xl">
+            <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div className="text-center space-y-1">
+              <h4 className="font-bold text-base text-stone-900 dark:text-stone-100">
+                Kosongkan Seluruh Data?
+              </h4>
+              <p className="text-xs text-stone-500">
+                Semua daftar bahan baku, menu, dan riwayat transaksi dummy akan direset menjadi <strong>0 (kosong)</strong>.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  onClearAllData();
+                  setIsClearConfirmOpen(false);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs cursor-pointer shadow-md"
+              >
+                Ya, Kosongkan
+              </button>
+              <button
+                onClick={() => setIsClearConfirmOpen(false)}
+                className="flex-1 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs cursor-pointer"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Konfirmasi Reset Data Contoh */}
       {isResetConfirmOpen && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white dark:bg-stone-900 rounded-2xl max-w-sm w-full border border-stone-200 dark:border-stone-800 p-5 space-y-4 shadow-2xl">
@@ -254,10 +318,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
             <div className="text-center space-y-1">
               <h4 className="font-bold text-base text-stone-900 dark:text-stone-100">
-                Sinkronkan Ulang Data Master?
+                Muat Ulang Data Contoh?
               </h4>
               <p className="text-xs text-stone-500">
-                Katalog lokal akan disegarkan kembali sesuai data master dari sistem Waroeng Seblak 48.
+                Katalog lokal akan diisi kembali dengan paket 48 bahan baku dan transaksi demo.
               </p>
             </div>
             <div className="flex gap-2">
@@ -268,7 +332,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 }}
                 className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs cursor-pointer shadow-md"
               >
-                Ya, Sinkronkan
+                Ya, Muat Ulang
               </button>
               <button
                 onClick={() => setIsResetConfirmOpen(false)}
