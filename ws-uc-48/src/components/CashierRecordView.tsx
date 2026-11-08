@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Utensils,
@@ -78,6 +78,9 @@ interface DrinkOption {
   name: string;
   price: number;
   description: string;
+  imageUrl?: string;
+  stock?: number;
+  unit?: string;
   ingredientId?: string;
 }
 
@@ -219,6 +222,7 @@ export interface PrasmananToppingItem {
 export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
   settings,
   ingredients,
+  menuItems = [],
   onToggleTheme,
   onBackToLogin,
   onOpenCustomerOrder,
@@ -340,9 +344,29 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
     setSelectedToppings({});
   };
 
+  // Katalog Minuman Dinamis dari Database (Kategori Minuman & Tersedia)
+  const activeDrinkCatalog: DrinkOption[] = useMemo(() => {
+    const fromMenu = (menuItems || [])
+      .filter((m) => m.category === 'Minuman' && m.isAvailable)
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        price: m.basePrice,
+        description: m.description,
+        imageUrl: m.imageUrl,
+        stock: m.stock ?? 50,
+        unit: m.unit || 'pcs',
+      }));
+
+    if (fromMenu.length > 0) {
+      return fromMenu;
+    }
+    return DRINK_CATALOG;
+  }, [menuItems]);
+
   // Perhitungan total minuman & topping
   const totalDrinkCount = Object.values(selectedDrinks).reduce((sum, qty) => sum + qty, 0);
-  const totalDrinkPrice = DRINK_CATALOG.reduce(
+  const totalDrinkPrice = activeDrinkCatalog.reduce(
     (sum, drink) => sum + (selectedDrinks[drink.id] || 0) * drink.price,
     0
   );
@@ -509,11 +533,11 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
       },
     ];
 
-    DRINK_CATALOG.forEach((drink) => {
+    activeDrinkCatalog.forEach((drink) => {
       const qty = selectedDrinks[drink.id] || 0;
       if (qty > 0) {
         items.push({
-          menuItemId: 'menu-6',
+          menuItemId: drink.id || 'menu-6',
           menuItemName: drink.name,
           quantity: qty,
           price: drink.price,
@@ -567,7 +591,7 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
     setStep('select_mode');
   };
 
-  const filteredDrinks = DRINK_CATALOG.filter(
+  const filteredDrinks = activeDrinkCatalog.filter(
     (d) =>
       d.name.toLowerCase().includes(drinkSearchQuery.trim().toLowerCase()) ||
       d.description.toLowerCase().includes(drinkSearchQuery.trim().toLowerCase())
@@ -1397,6 +1421,7 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                             <IngredientImage
                               name={drink.name}
                               category="Minuman"
+                              imageUrl={drink.imageUrl}
                               className="w-full h-full object-cover"
                             />
                           </div>
@@ -1404,9 +1429,14 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                             <h3 className="font-extrabold text-xs sm:text-sm text-stone-900 dark:text-stone-100 line-clamp-1">
                               {drink.name}
                             </h3>
-                            <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                              {formatRupiah(drink.price)}
-                            </p>
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                                {formatRupiah(drink.price)}
+                              </p>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${(drink.stock ?? 50) <= 0 ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400' : 'text-stone-400'}`}>
+                                {(drink.stock ?? 50) <= 0 ? 'Habis' : `${drink.stock ?? 50} ${drink.unit || 'pcs'}`}
+                              </span>
+                            </div>
                             <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-snug line-clamp-2 pt-0.5">
                               {drink.description}
                             </p>
@@ -1870,7 +1900,7 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
 
                     {totalDrinkCount > 0 ? (
                       <div className="space-y-1.5">
-                        {DRINK_CATALOG.filter((d) => (selectedDrinks[d.id] || 0) > 0).map(
+                        {activeDrinkCatalog.filter((d) => (selectedDrinks[d.id] || 0) > 0).map(
                           (drink) => {
                             const qty = selectedDrinks[drink.id];
                             return (

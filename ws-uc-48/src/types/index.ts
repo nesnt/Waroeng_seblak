@@ -49,6 +49,9 @@ export interface MenuItem {
   description: string;
   isAvailable: boolean;
   recipe: RecipeItem[];
+  imageUrl?: string;
+  stock?: number;
+  unit?: string;
 }
 
 export interface ToppingOption {

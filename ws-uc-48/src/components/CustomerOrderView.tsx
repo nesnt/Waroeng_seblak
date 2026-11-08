@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Flame,
@@ -23,7 +23,6 @@ import {
   ChevronsDown,
   Search,
   X,
-  Lock,
 } from 'lucide-react';
 import { Ingredient, MenuItem, StoreSettings, OrderItem, BowlOrderDrink } from '../types';
 import { formatRupiah } from '../utils/formatters';
@@ -36,7 +35,6 @@ interface CustomerOrderViewProps {
   menuItems: MenuItem[];
   onToggleTheme: () => void;
   onBackToLogin?: () => void;
-  onOpenCashier?: () => void;
   onOrderCreated: () => void;
 }
 
@@ -57,6 +55,9 @@ interface DrinkOption {
   name: string;
   price: number;
   description: string;
+  imageUrl?: string;
+  stock?: number;
+  unit?: string;
   ingredientId?: string;
 }
 
@@ -183,9 +184,9 @@ const ChiliPepperIcon: React.FC<{ size: number; active: boolean; isZero?: boolea
 
 export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
   settings,
+  menuItems = [],
   onToggleTheme,
   onBackToLogin,
-  onOpenCashier,
   onOrderCreated,
 }) => {
   // Flow Step State
@@ -267,8 +268,28 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
     });
   };
 
+  // Katalog Minuman Dinamis dari Database (Kategori Minuman & Tersedia)
+  const activeDrinkCatalog: DrinkOption[] = useMemo(() => {
+    const fromMenu = (menuItems || [])
+      .filter((m) => m.category === 'Minuman' && m.isAvailable)
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        price: m.basePrice,
+        description: m.description,
+        imageUrl: m.imageUrl,
+        stock: m.stock ?? 50,
+        unit: m.unit || 'pcs',
+      }));
+
+    if (fromMenu.length > 0) {
+      return fromMenu;
+    }
+    return DRINK_CATALOG;
+  }, [menuItems]);
+
   const totalDrinkCount = Object.values(selectedDrinks).reduce((sum, qty) => sum + qty, 0);
-  const totalDrinkPrice = DRINK_CATALOG.reduce(
+  const totalDrinkPrice = activeDrinkCatalog.reduce(
     (sum, drink) => sum + (selectedDrinks[drink.id] || 0) * drink.price,
     0
   );
@@ -335,11 +356,11 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
       },
     ];
 
-    DRINK_CATALOG.forEach((drink) => {
+    activeDrinkCatalog.forEach((drink) => {
       const qty = selectedDrinks[drink.id] || 0;
       if (qty > 0) {
         items.push({
-          menuItemId: 'menu-6',
+          menuItemId: drink.id || 'menu-6',
           menuItemName: drink.name,
           quantity: qty,
           price: drink.price,
@@ -364,7 +385,7 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
     });
 
     const orderedDrinks: BowlOrderDrink[] = [];
-    DRINK_CATALOG.forEach((drink) => {
+    activeDrinkCatalog.forEach((drink) => {
       const qty = selectedDrinks[drink.id] || 0;
       if (qty > 0) {
         orderedDrinks.push({
@@ -410,7 +431,7 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
     setStep('bowl_number');
   };
 
-  const filteredDrinks = DRINK_CATALOG.filter(
+  const filteredDrinks = activeDrinkCatalog.filter(
     (d) =>
       d.name.toLowerCase().includes(drinkSearchQuery.trim().toLowerCase()) ||
       d.description.toLowerCase().includes(drinkSearchQuery.trim().toLowerCase())
@@ -445,17 +466,6 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {onOpenCashier && (
-              <button
-                type="button"
-                onClick={onOpenCashier}
-                className="py-2 px-3 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-orange-50 dark:hover:bg-orange-950/40 hover:text-orange-600 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-                title="Khusus Petugas: Masuk ke Menu Kasir (/kasir)"
-              >
-                <Lock className="w-3.5 h-3.5 text-stone-400" />
-                <span className="hidden sm:inline">Portal Kasir</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={onToggleTheme}
@@ -1021,6 +1031,7 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
                               <IngredientImage
                                 name={drink.name}
                                 category="Minuman"
+                                imageUrl={drink.imageUrl}
                                 className="w-full h-full object-cover"
                               />
                             </div>
@@ -1028,9 +1039,14 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
                               <h3 className="font-extrabold text-xs sm:text-sm text-stone-900 dark:text-stone-100 line-clamp-1">
                                 {drink.name}
                               </h3>
-                              <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                                {formatRupiah(drink.price)}
-                              </p>
+                              <div className="flex items-center justify-between gap-1">
+                                <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                                  {formatRupiah(drink.price)}
+                                </p>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${(drink.stock ?? 50) <= 0 ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400' : 'text-stone-400'}`}>
+                                  {(drink.stock ?? 50) <= 0 ? 'Habis' : `${drink.stock ?? 50} ${drink.unit || 'pcs'}`}
+                                </span>
+                              </div>
                               <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-snug line-clamp-2 pt-0.5">
                                 {drink.description}
                               </p>
@@ -1359,7 +1375,7 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
 
                     {isEditingReceipt ? (
                       <div className="space-y-2 pt-1">
-                        {DRINK_CATALOG.map((drink) => {
+                        {activeDrinkCatalog.map((drink) => {
                           const qty = selectedDrinks[drink.id] || 0;
                           return (
                             <div
@@ -1394,7 +1410,7 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
                       </div>
                     ) : totalDrinkCount > 0 ? (
                       <div className="space-y-1.5">
-                        {DRINK_CATALOG.filter((d) => (selectedDrinks[d.id] || 0) > 0).map(
+                        {activeDrinkCatalog.filter((d) => (selectedDrinks[d.id] || 0) > 0).map(
                           (drink) => {
                             const qty = selectedDrinks[drink.id];
                             return (
@@ -1551,7 +1567,7 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
                     <span className="text-stone-500 dark:text-stone-400">Minuman:</span>
                     <span className="font-bold text-stone-900 dark:text-stone-100 text-right">
                       {totalDrinkCount > 0
-                        ? DRINK_CATALOG.filter((d) => (selectedDrinks[d.id] || 0) > 0)
+                        ? activeDrinkCatalog.filter((d) => (selectedDrinks[d.id] || 0) > 0)
                             .map((d) => `${d.name} x${selectedDrinks[d.id]}`)
                             .join(', ')
                         : 'Tanpa Minuman'}

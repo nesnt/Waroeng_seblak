@@ -70,6 +70,9 @@ function mapDbMenuItemToFrontend(row: any): MenuItem {
     basePrice: Number(row.base_price ?? 0),
     description: row.description || '',
     isAvailable: row.is_available ?? true,
+    imageUrl: row.image_url || undefined,
+    stock: Number(row.stock ?? row.current_stock ?? 50),
+    unit: row.unit || 'pcs',
     recipe: (row.menu_recipes || []).map((r: any) => ({
       ingredientId: r.ingredient_id,
       amount: Number(r.amount_needed ?? 1),
@@ -301,6 +304,21 @@ export function subscribeToIngredients(onUpdate: (ingredients: Ingredient[]) => 
   };
 }
 
+export function subscribeToMenuItems(onUpdate: (menus: MenuItem[]) => void) {
+  if (!isSupabaseConfigured()) return () => {};
+  const channel = supabase
+    .channel('realtime_uc_menu_items')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, async () => {
+      const updated = await fetchMenuItemsFromSupabase();
+      onUpdate(updated);
+    })
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 // ============================================================================
 // SYNCHRONOUS & HYBRID FUNCTIONS (Untuk UI Component Rendering & Local Cache)
 // ============================================================================
@@ -413,6 +431,29 @@ export function saveMenuItem(menuItem: MenuItem): void {
     updatedList = [menuItem, ...current];
   }
   localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(updatedList));
+
+  if (isSupabaseConfigured()) {
+    const isUuid = menuItem.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(menuItem.id);
+    const payload: any = {
+      name: menuItem.name,
+      category: menuItem.category,
+      base_price: menuItem.basePrice,
+      description: menuItem.description,
+      image_url: menuItem.imageUrl || null,
+      stock: menuItem.stock ?? 50,
+      unit: menuItem.unit || 'pcs',
+      is_available: menuItem.isAvailable,
+    };
+    if (isUuid) {
+      payload.id = menuItem.id;
+    }
+    supabase
+      .from('menu_items')
+      .upsert(payload)
+      .then(({ error }) => {
+        if (error) console.error('⚠️ [Supabase] Gagal menyimpan menu item:', error);
+      });
+  }
 }
 
 export function deleteMenuItem(id: string): void {
@@ -515,6 +556,19 @@ export function createTransaction(
   if (ingredientsModified) {
     localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(currentIngredients));
   }
+
+  // Potong stok minuman jika ada item minuman
+  const currentMenuItems = getMenuItems();
+  newTransaction.items.forEach((item) => {
+    const mIdx = currentMenuItems.findIndex((m) => m.id === item.menuItemId || m.name === item.menuItemName);
+    if (mIdx >= 0 && currentMenuItems[mIdx].category === 'Minuman') {
+      const prevStock = currentMenuItems[mIdx].stock ?? 50;
+      const newStock = Math.max(0, prevStock - item.quantity);
+      currentMenuItems[mIdx].stock = newStock;
+      currentMenuItems[mIdx].isAvailable = newStock > 0;
+      saveMenuItem(currentMenuItems[mIdx]);
+    }
+  });
 
   // Kirim transaksi ke Supabase
   if (isSupabaseConfigured()) {

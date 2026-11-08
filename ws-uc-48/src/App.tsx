@@ -18,6 +18,7 @@ import {
   fetchMenuItemsFromSupabase,
   fetchSettingsFromSupabase,
   subscribeToIngredients,
+  subscribeToMenuItems,
 } from './services/storage';
 import { CustomerOrderView } from './components/CustomerOrderView';
 import { CashierRecordView } from './components/CashierRecordView';
@@ -59,9 +60,11 @@ export default function App() {
     fetchMenuItemsFromSupabase().then(setMenuItems);
     fetchSettingsFromSupabase().then(setSettings);
 
-    const unsub = subscribeToIngredients(setIngredients);
+    const unsubIng = subscribeToIngredients(setIngredients);
+    const unsubMenu = subscribeToMenuItems(setMenuItems);
     return () => {
-      unsub();
+      unsubIng();
+      unsubMenu();
     };
   }, []);
 
@@ -141,10 +144,6 @@ export default function App() {
       ingredients={ingredients}
       menuItems={menuItems}
       onToggleTheme={handleToggleTheme}
-      onOpenCashier={() => {
-        refreshData();
-        navigateTo('/kasir');
-      }}
       onOrderCreated={refreshData}
     />
   );

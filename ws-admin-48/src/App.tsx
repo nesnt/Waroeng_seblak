@@ -29,10 +29,12 @@ import {
   fetchSettingsFromSupabase,
   subscribeToIngredients,
   subscribeToTransactions,
+  subscribeToMenuItems,
 } from './services/storage';
 import { DesktopSidebar, MobileNavigation } from './components/Navigation';
 import { DashboardView } from './components/DashboardView';
 import { InventoryView } from './components/InventoryView';
+import { DrinkMenuView } from './components/DrinkMenuView';
 import { TransactionHistoryView } from './components/TransactionHistoryView';
 import { SalesReportView } from './components/SalesReportView';
 import { SettingsView } from './components/SettingsView';
@@ -116,16 +118,19 @@ export default function App() {
 
     const unsubIng = subscribeToIngredients(setIngredients);
     const unsubTx = subscribeToTransactions(setTransactions);
+    const unsubMenu = subscribeToMenuItems(setMenuItems);
 
     // Sinkronisasi berkala (polling setiap 8 detik sebagai pengaman realtime WebSocket)
     const pollInterval = setInterval(() => {
       fetchTransactionsFromSupabase().then(setTransactions);
       fetchIngredientsFromSupabase().then(setIngredients);
+      fetchMenuItemsFromSupabase().then(setMenuItems);
     }, 8000);
 
     return () => {
       unsubIng();
       unsubTx();
+      unsubMenu();
       clearInterval(pollInterval);
     };
   }, []);
@@ -465,6 +470,14 @@ export default function App() {
               onAdjustStock={handleAdjustStock}
               targetQuickRestockId={targetQuickRestockId}
               onClearTargetQuickRestock={() => setTargetQuickRestockId(null)}
+            />
+          )}
+
+          {activeTab === 'minuman' && (
+            <DrinkMenuView
+              menuItems={menuItems}
+              onSaveMenuItem={handleSaveMenuItem}
+              onDeleteMenuItem={handleDeleteMenuItem}
             />
           )}
 

@@ -17,6 +17,7 @@ import {
   X,
   Edit2,
   LogOut,
+  CupSoda,
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -82,6 +83,7 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
       icon: Boxes,
       badge: lowStockCount > 0 ? lowStockCount : undefined,
     },
+    { id: 'minuman', label: 'Menu & Minuman', icon: CupSoda },
     { id: 'riwayat', label: 'Riwayat Transaksi', icon: ReceiptText },
     { id: 'laporan', label: 'Laporan Omset', icon: BarChart3 },
     { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
@@ -302,7 +304,7 @@ export const MobileNavigation: React.FC<NavigationProps> = ({
         {/* 1. Beranda */}
         <button
           onClick={() => onTabChange('beranda')}
-          className={`flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+          className={`flex flex-col items-center py-1 px-2 rounded-lg text-[10px] font-bold transition cursor-pointer ${
             activeTab === 'beranda'
               ? 'text-orange-600 dark:text-orange-400'
               : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
@@ -310,6 +312,19 @@ export const MobileNavigation: React.FC<NavigationProps> = ({
         >
           <LayoutDashboard className="w-5 h-5 mb-0.5" />
           <span>Beranda</span>
+        </button>
+
+        {/* 2. Minuman */}
+        <button
+          onClick={() => onTabChange('minuman')}
+          className={`flex flex-col items-center py-1 px-2 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+            activeTab === 'minuman'
+              ? 'text-orange-600 dark:text-orange-400'
+              : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+          }`}
+        >
+          <CupSoda className="w-5 h-5 mb-0.5" />
+          <span>Minuman</span>
         </button>
 
         {/* 2. Riwayat */}

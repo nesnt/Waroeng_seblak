@@ -751,63 +751,67 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
     ingredient?.lastPurchasePrice || 1000
   );
   const [imageUrl, setImageUrl] = useState<string>(ingredient?.imageUrl || '');
-  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploadError(null);
-    setUploadSuccess(null);
+    setSelectedFile(file);
 
-    // Jika Google Apps Script sudah dikonfigurasi, unggah ke Google Drive
-    if (isDriveUploadConfigured()) {
-      setIsUploading(true);
-      try {
-        const res = await uploadImageToGoogleDrive(file);
-        if (res.success && res.imageUrl) {
-          setImageUrl(res.imageUrl);
-          setUploadSuccess('Foto berhasil diunggah ke Google Drive!');
-        } else {
-          setUploadError(res.error || 'Gagal mengunggah foto ke Google Drive.');
-          // Fallback membaca base64 lokal untuk pratinjau
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            if (typeof reader.result === 'string') setImageUrl(reader.result);
-          };
-          reader.readAsDataURL(file);
-        }
-      } catch (err: any) {
-        setUploadError(err.message || 'Terjadi kesalahan saat mengunggah foto.');
-      } finally {
-        setIsUploading(false);
+    // Baca file secara lokal HANYA untuk pratinjau di layar modal
+    // (Foto BELUM diunggah ke Google Drive sampai tombol 'Simpan Bahan' ditekan)
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        setImageUrl(reader.result);
+        setUploadSuccess(`Foto "${file.name}" dipilih. Foto akan diunggah saat Anda klik Simpan Bahan.`);
       }
-    } else {
-      // Fallback lokal jika URL Google Apps Script belum diisi di .env
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setImageUrl(reader.result);
-          setUploadSuccess('Foto dimuat secara lokal (atur VITE_GOOGLE_APPS_SCRIPT_URL di .env untuk sinkron ke Google Drive).');
-        }
-      };
-      reader.readAsDataURL(file);
-    }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleUrlInput = (val: string) => {
     // Otomatis ubah link sharing Google Drive menjadi Direct CDN URL
     const formatted = formatGoogleDriveDirectUrl(val);
     setImageUrl(formatted);
+    setSelectedFile(null);
     setUploadError(null);
     setUploadSuccess(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
+    let finalImageUrl = imageUrl.trim();
+
+    // HANYA UNGGAH KE GOOGLE DRIVE JIKA ADA FILE BARU YANG DIPILIH
+    if (selectedFile && isDriveUploadConfigured()) {
+      setIsSaving(true);
+      setUploadError(null);
+      setUploadSuccess(null);
+      try {
+        const res = await uploadImageToGoogleDrive(selectedFile);
+        if (res.success && res.imageUrl) {
+          finalImageUrl = res.imageUrl;
+        } else {
+          setUploadError(res.error || 'Gagal mengunggah foto ke Google Drive.');
+          setIsSaving(false);
+          return; // Hentikan penyimpanan agar user dapat memeriksa atau mencoba lagi
+        }
+      } catch (err: any) {
+        setUploadError(err.message || 'Terjadi kesalahan saat mengunggah foto ke Google Drive.');
+        setIsSaving(false);
+        return;
+      } finally {
+        setIsSaving(false);
+      }
+    }
 
     onSave({
       id: ingredient?.id || `ing-${Date.now()}`,
@@ -819,7 +823,7 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
       lastPurchasePrice,
       status: currentStock <= 0 ? 'habis' : currentStock <= minStock ? 'menipis' : 'aman',
       updatedAt: new Date().toISOString(),
-      imageUrl: imageUrl.trim() || undefined,
+      imageUrl: finalImageUrl || undefined,
     });
   };
 
@@ -846,7 +850,12 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
               {imageUrl && (
                 <button
                   type="button"
-                  onClick={() => setImageUrl('')}
+                  onClick={() => {
+                    setImageUrl('');
+                    setSelectedFile(null);
+                    setUploadSuccess(null);
+                    setUploadError(null);
+                  }}
                   className="text-[11px] text-red-500 hover:underline cursor-pointer"
                 >
                   Gunakan Ilustrasi Bawaan
@@ -861,33 +870,30 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
                 imageUrl={imageUrl}
                 className="w-full h-full object-cover"
               />
-              {imageUrl && (imageUrl.includes('googleusercontent.com') || imageUrl.includes('drive.google.com')) && (
-                <div className="absolute top-2 left-2 bg-emerald-600/90 backdrop-blur-xs text-white text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                  <span>Google Drive CDN</span>
+              {selectedFile ? (
+                <div className="absolute top-2 left-2 bg-orange-600/90 backdrop-blur-xs text-white text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                  <span>Pratinjau (Upload saat Simpan)</span>
                 </div>
+              ) : (
+                imageUrl && (imageUrl.includes('googleusercontent.com') || imageUrl.includes('drive.google.com')) && (
+                  <div className="absolute top-2 left-2 bg-emerald-600/90 backdrop-blur-xs text-white text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                    <span>Google Drive CDN</span>
+                  </div>
+                )
               )}
             </div>
 
             {/* Tombol Upload & Input URL */}
             <div className="space-y-2">
               <div className="flex gap-2">
-                <label className={`flex-1 py-2 px-3 rounded-xl border border-dashed border-stone-300 dark:border-stone-700 hover:border-orange-500 text-xs font-semibold text-stone-700 dark:text-stone-300 flex items-center justify-center gap-1.5 transition ${isUploading ? 'opacity-50 cursor-not-allowed bg-stone-100' : 'cursor-pointer bg-stone-50 dark:bg-stone-800/50'}`}>
-                  {isUploading ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 text-orange-600 animate-spin" />
-                      <span>Mengunggah ke Google Drive...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-3.5 h-3.5 text-orange-600" />
-                      <span>Pilih Foto dari HP/Laptop</span>
-                    </>
-                  )}
+                <label className={`flex-1 py-2 px-3 rounded-xl border border-dashed border-stone-300 dark:border-stone-700 hover:border-orange-500 text-xs font-semibold text-stone-700 dark:text-stone-300 flex items-center justify-center gap-1.5 transition ${isSaving ? 'opacity-50 cursor-not-allowed bg-stone-100' : 'cursor-pointer bg-stone-50 dark:bg-stone-800/50'}`}>
+                  <Upload className="w-3.5 h-3.5 text-orange-600" />
+                  <span>{selectedFile ? `Foto Terpilih: ${selectedFile.name}` : 'Pilih Foto dari HP/Laptop'}</span>
                   <input
                     type="file"
                     accept="image/*"
-                    disabled={isUploading}
-                    onChange={handleFileUpload}
+                    disabled={isSaving}
+                    onChange={handleFileSelect}
                     className="hidden"
                   />
                 </label>
@@ -1022,14 +1028,23 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
           <div className="flex gap-2 pt-3 border-t border-stone-100 dark:border-stone-800">
             <button
               type="submit"
-              className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
+              disabled={isSaving}
+              className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Simpan Bahan
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Mengunggah Foto &amp; Menyimpan...</span>
+                </>
+              ) : (
+                <span>Simpan Bahan</span>
+              )}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="py-2.5 px-4 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs font-semibold cursor-pointer"
+              disabled={isSaving}
+              className="py-2.5 px-4 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs font-semibold cursor-pointer disabled:opacity-50"
             >
               Batal
             </button>
