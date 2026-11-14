@@ -15,8 +15,12 @@ dist/
 build/
 */build/
 
-# Logs
+# Logs & Sessions
 *.log
+baileys_auth_info/
+*/baileys_auth_info/
+sessions/
+*/sessions/
 
 # System & Editor
 .DS_Store
