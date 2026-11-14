@@ -13,6 +13,7 @@ import { env } from '../config/env.js';
 import { getSenderRole, normalizePhoneNumber, UserRole } from '../utils/roleGuard.js';
 import { processMessage, resetUserSession } from './gemini.js';
 import { logChatToSupabase } from './supabaseService.js';
+import { logServerError } from '../utils/logger.js';
 
 // Status runtime WhatsApp
 let sock: WASocket | null = null;
@@ -296,10 +297,20 @@ export const initWhatsApp = async (): Promise<WASocket> => {
         }).catch(() => {});
 
       } catch (err: any) {
-        console.error(`[WhatsApp Error] Gagal membalas pesan ke ${senderJid}:`, err);
+        logServerError('WhatsApp Incoming Message Handler', err, {
+          senderJid,
+          senderRole: role,
+          senderName: pushName,
+          incomingText
+        });
+
         if (sock) {
+          const fallbackText = role === 'OWNER'
+            ? 'Mohon maaf Bos, terjadi kendala teknis sementara pada sistem bot. Detail error telah dicatat ke log server terminal. Silakan coba beberapa saat lagi.'
+            : 'Mohon maaf kak, sistem kami sedang mengalami sedikit gangguan. Silakan coba sesaat lagi ya! 🙏';
+
           await sock.sendMessage(senderJid, {
-            text: 'Mohon maaf kak, sistem kami sedang mengalami sedikit gangguan. Silakan coba sesaat lagi ya! 🙏'
+            text: fallbackText
           }, sendOptions).catch(() => {});
         }
       } finally {

@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { UserRole } from '../utils/roleGuard.js';
 import { ownerFunctionDeclarations, executeOwnerTool } from '../tools/ownerTools.js';
 import { customerFunctionDeclarations, executeCustomerTool } from '../tools/customerTools.js';
+import { logServerError } from '../utils/logger.js';
 
 // Inisialisasi client resmi Google Gen AI SDK
 const ai = new GoogleGenAI({
@@ -69,7 +70,8 @@ Prinsip & Pedoman Utama:
    - 'update_stok_bahan': menambah atau mengurangi stok inventori langsung dari chat.
    - 'cek_transaksi_terakhir': memantau aktivitas kasir terbaru.
 3. Selalu panggil tool yang relevan sebelum menjawab pertanyaan terkait angka, omset, atau inventori agar data selalu 100% akurat dari database Supabase.
-4. Format angka Rupiah dengan jelas (contoh: Rp 150.000) dan gunakan poin-poin terstruktur agar mudah dibaca sekilas di layar WhatsApp.`;
+4. Format angka Rupiah dengan jelas (contoh: Rp 150.000) dan gunakan poin-poin terstruktur agar mudah dibaca sekilas di layar WhatsApp.
+5. KEAMANAN & PRIVASI SISTEM: DILARANG KERAS menampilkan pesan error teknis, raw JSON, error code, nama tabel internal, atau query SQL ke dalam obrolan WhatsApp. Jika suatu tool mengembalikan status kendala atau gagal memuat data, sampaikan secara tenang dan profesional bahwa data operasional sedang disinkronisasi.`;
   }
 
   return `Anda adalah Asisten Layanan Pelanggan Ramah bernama "Mba Seblak 48" dari Waroeng Seblak 48.
@@ -91,7 +93,8 @@ Prinsip & Pedoman Utama:
    - 'ambil_brosur_promo': link foto brosur menu/promo.
    - 'hitung_estimasi_harga': kalkulasi perkiraan biaya.
 4. PERATURAN KEAMANAN KETAT: JANGAN PERNAH membocorkan omset warung, data penjualan internal, modal bahan, atau informasi rahasia warung kepada pelanggan!
-5. Gunakan emoji yang ramah dan relevan (🍲, 🌶️, 🥤, ✨, 🙏) agar percakapan interaktif dan menggugah selera.`;
+5. KEAMANAN & PRIVASI SISTEM: DILARANG KERAS menampilkan pesan error teknis, format JSON, atau istilah database ke pelanggan. Jika ada kendala, cukup beri tahu dengan ramah bahwa warung sedang sibuk atau data menu sedang diperbarui.
+6. Gunakan emoji yang ramah dan relevan (🍲, 🌶️, 🥤, ✨, 🙏) agar percakapan interaktif dan menggugah selera.`;
 };
 
 // Model-model stabil cadangan jika model utama sedang mengalami lonjakan beban (503)
@@ -223,8 +226,19 @@ export const processMessage = async (
               executionResult = await executeCustomerTool(toolName, toolArgs);
             }
           } catch (execErr: any) {
-            console.error(`[Gemini Tool Exec Error]: ${toolName}`, execErr);
-            executionResult = { error: execErr.message || 'Gagal mengeksekusi tool' };
+            // Catat detail error teknis hanya ke terminal server/log
+            logServerError(`Eksekusi Tool "${toolName}"`, execErr, {
+              senderJid,
+              senderRole: role,
+              toolName,
+              toolArgs
+            });
+
+            // Kembalikan respons yang aman dan bersih agar Gemini tidak membocorkan error teknis ke chat
+            executionResult = {
+              status: 'maintenance',
+              pesan: 'Data operasional sementara belum dapat diambil karena kendala sinkronisasi internal.'
+            };
           }
 
           // Simpan catatan tool yang dijalankan
@@ -280,10 +294,22 @@ export const processMessage = async (
       break;
     }
   } catch (err: any) {
-    console.error('[Gemini processMessage Error]:', err);
+    // Catat seluruh detail error teknis ke terminal server / log
+    logServerError('Gemini processMessage', err, {
+      senderJid,
+      senderRole: role,
+      incomingText
+    });
+
     // Bersihkan sesi jika terjadi error format agar percakapan berikutnya tidak tersangkut
     sessionStore.delete(senderJid);
-    finalText = `Mohon maaf, terjadi kendala saat memproses permintaan: ${err.message || 'Layanan AI sedang sibuk'}`;
+
+    // Pesan ramah dan bebas dari teks teknis / JSON error untuk dikirim ke chat WhatsApp
+    if (role === 'OWNER') {
+      finalText = 'Mohon maaf Bos, sistem sedang mengalami kendala teknis sementara saat memproses permintaan ini. Rincian error telah dicatat ke log server terminal. Silakan coba kembali beberapa saat lagi.';
+    } else {
+      finalText = 'Mohon maaf kak, Mba Seblak sedang mengalami sedikit kendala sistem. Silakan coba beberapa saat lagi ya kak! 🙏';
+    }
   }
 
   return {
