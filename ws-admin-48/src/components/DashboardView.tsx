@@ -16,6 +16,7 @@ import {
   Flame,
   XCircle,
   X,
+  Bot,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -318,6 +319,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-stone-400 group-hover:translate-x-1 transition shrink-0" />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Banner AI Agent WhatsApp & Monitoring Kuota Token */}
+      <div
+        onClick={() => onNavigateToTab('ai-token')}
+        className="bg-linear-to-r from-orange-500/10 via-amber-500/10 to-emerald-500/10 dark:from-orange-950/30 dark:via-amber-950/20 dark:to-emerald-950/20 border border-orange-200/80 dark:border-orange-800/60 rounded-2xl p-4 sm:p-5 shadow-xs hover:border-orange-300 dark:hover:border-orange-700 transition cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 group"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition">
+            <Bot className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="font-extrabold text-sm sm:text-base text-stone-900 dark:text-stone-100 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition">
+                Status AI Agent &amp; Kuota Token
+              </h4>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                100% Kuota Aman
+              </span>
+            </div>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+              Bot WhatsApp aktif dengan Gemini 3.1 Flash Lite. Kuota harian gratis 1.000.000 token / hari.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 text-xs font-bold text-orange-600 dark:text-orange-400 group-hover:translate-x-0.5 transition shrink-0 self-end sm:self-center">
+          <span>Pantau Kuota &amp; Riwayat</span>
+          <ChevronRight className="w-4 h-4" />
         </div>
       </div>
 

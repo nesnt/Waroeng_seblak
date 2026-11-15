@@ -570,8 +570,27 @@ export const getBrochureOrPromoUrl = async (): Promise<string> => {
 // 3. AUDIT & LOGGING
 // ==========================================
 
+export interface TokenUsageMeta {
+  promptTokens: number;
+  candidatesTokens: number;
+  totalTokens: number;
+  model: string;
+}
+
+// In-memory buffer untuk log chat & token (menjamin pencatatan selalu berfungsi meski tabel Supabase belum di-create)
+const inMemoryChatLogs: Array<{
+  id: string;
+  sender_jid: string;
+  sender_role: string;
+  sender_name: string;
+  incoming_message: string;
+  ai_response: string;
+  tool_calls_executed: any;
+  created_at: string;
+}> = [];
+
 /**
- * Menyimpan riwayat obrolan AI ke Supabase untuk audit dan evaluasi performa
+ * Menyimpan riwayat obrolan AI ke Supabase untuk audit dan evaluasi performa (termasuk konsumsi token)
  */
 export const logChatToSupabase = async (params: {
   senderJid: string;
@@ -580,7 +599,31 @@ export const logChatToSupabase = async (params: {
   incomingMessage: string;
   aiResponse: string;
   toolCallsExecuted?: any;
+  tokenUsage?: TokenUsageMeta;
 }) => {
+  const payload: any = {
+    tools: params.toolCallsExecuted || [],
+    tokenUsage: params.tokenUsage || {
+      promptTokens: Math.ceil(params.incomingMessage.length / 4),
+      candidatesTokens: Math.ceil(params.aiResponse.length / 4),
+      totalTokens: Math.ceil((params.incomingMessage.length + params.aiResponse.length) / 4),
+      model: env.GEMINI_MODEL || 'gemini-3.1-flash-lite'
+    }
+  };
+
+  // Simpan ke in-memory buffer lokal
+  inMemoryChatLogs.unshift({
+    id: `local-${Date.now()}`,
+    sender_jid: params.senderJid,
+    sender_role: params.senderRole,
+    sender_name: params.senderName || 'Unknown',
+    incoming_message: params.incomingMessage,
+    ai_response: params.aiResponse,
+    tool_calls_executed: payload,
+    created_at: new Date().toISOString()
+  });
+  if (inMemoryChatLogs.length > 100) inMemoryChatLogs.pop();
+
   try {
     await supabase.from('wa_chat_logs').insert({
       sender_jid: params.senderJid,
@@ -588,10 +631,141 @@ export const logChatToSupabase = async (params: {
       sender_name: params.senderName || 'Unknown',
       incoming_message: params.incomingMessage,
       ai_response: params.aiResponse,
-      tool_calls_executed: params.toolCallsExecuted || null
+      tool_calls_executed: payload
     });
   } catch (err) {
     // Non-blocking log error
   }
+};
+
+export interface TokenUsageStats {
+  model: string;
+  dailyQuotaTokens: number;
+  dailyQuotaRequests: number;
+  today: {
+    promptTokens: number;
+    candidatesTokens: number;
+    totalTokens: number;
+    requestsCount: number;
+    remainingTokens: number;
+    remainingRequests: number;
+    percentTokensUsed: number;
+    percentRequestsUsed: number;
+  };
+  allTime: {
+    totalTokens: number;
+    totalRequests: number;
+  };
+  recentLogs: Array<{
+    id: string;
+    createdAt: string;
+    senderName: string;
+    senderRole: string;
+    incomingMessage: string;
+    aiResponseSnippet: string;
+    promptTokens: number;
+    candidatesTokens: number;
+    totalTokens: number;
+    model: string;
+  }>;
+}
+
+/**
+ * Mengambil ringkasan statistik penggunaan token AI dan sisa kuota harian
+ */
+export const getTokenUsageStats = async (): Promise<TokenUsageStats> => {
+  const DAILY_QUOTA_TOKENS = 1000000; // 1 Juta Token per hari (Standar Free Tier Gemini)
+  const DAILY_QUOTA_REQUESTS = 1500;  // 1.500 Request per hari (Batas RPD Free Tier)
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  let logsToProcess: any[] = [];
+
+  try {
+    const { data: logs, error } = await supabase
+      .from('wa_chat_logs')
+      .select('id, sender_name, sender_role, incoming_message, ai_response, tool_calls_executed, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (!error && logs && logs.length > 0) {
+      logsToProcess = logs;
+    } else {
+      logsToProcess = inMemoryChatLogs;
+    }
+  } catch (err) {
+    logsToProcess = inMemoryChatLogs;
+  }
+
+  let todayPrompt = 0;
+  let todayCandidates = 0;
+  let todayTotal = 0;
+  let todayRequests = 0;
+
+  let allTimeTotal = 0;
+  const allTimeRequests = logsToProcess.length;
+
+  const recentLogs = logsToProcess.slice(0, 15).map((log: any) => {
+    const meta = log.tool_calls_executed?.tokenUsage || {};
+    const prompt = Number(meta.promptTokens) || Math.ceil((log.incoming_message?.length || 10) / 4);
+    const candidates = Number(meta.candidatesTokens) || Math.ceil((log.ai_response?.length || 20) / 4);
+    const total = Number(meta.totalTokens) || (prompt + candidates);
+    const model = meta.model || env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+
+    return {
+      id: log.id,
+      createdAt: log.created_at,
+      senderName: log.sender_name || 'Pengguna',
+      senderRole: log.sender_role || 'CUSTOMER',
+      incomingMessage: log.incoming_message || '',
+      aiResponseSnippet: (log.ai_response || '').length > 80 ? `${log.ai_response.slice(0, 80)}...` : log.ai_response,
+      promptTokens: prompt,
+      candidatesTokens: candidates,
+      totalTokens: total,
+      model
+    };
+  });
+
+  for (const log of logsToProcess) {
+    const isToday = log.created_at?.startsWith(todayStr);
+    const meta = log.tool_calls_executed?.tokenUsage || {};
+    const prompt = Number(meta.promptTokens) || Math.ceil((log.incoming_message?.length || 10) / 4);
+    const candidates = Number(meta.candidatesTokens) || Math.ceil((log.ai_response?.length || 20) / 4);
+    const total = Number(meta.totalTokens) || (prompt + candidates);
+
+    allTimeTotal += total;
+
+    if (isToday) {
+      todayPrompt += prompt;
+      todayCandidates += candidates;
+      todayTotal += total;
+      todayRequests += 1;
+    }
+  }
+
+  const remainingTokens = Math.max(0, DAILY_QUOTA_TOKENS - todayTotal);
+  const remainingRequests = Math.max(0, DAILY_QUOTA_REQUESTS - todayRequests);
+  const percentTokensUsed = Number(((todayTotal / DAILY_QUOTA_TOKENS) * 100).toFixed(2));
+  const percentRequestsUsed = Number(((todayRequests / DAILY_QUOTA_REQUESTS) * 100).toFixed(2));
+
+  return {
+    model: env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+    dailyQuotaTokens: DAILY_QUOTA_TOKENS,
+    dailyQuotaRequests: DAILY_QUOTA_REQUESTS,
+    today: {
+      promptTokens: todayPrompt,
+      candidatesTokens: todayCandidates,
+      totalTokens: todayTotal,
+      requestsCount: todayRequests,
+      remainingTokens,
+      remainingRequests,
+      percentTokensUsed,
+      percentRequestsUsed
+    },
+    allTime: {
+      totalTokens: allTimeTotal,
+      totalRequests: allTimeRequests
+    },
+    recentLogs
+  };
 };
 

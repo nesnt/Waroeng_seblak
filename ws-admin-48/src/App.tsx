@@ -38,6 +38,7 @@ import { DrinkMenuView } from './components/DrinkMenuView';
 import { TransactionHistoryView } from './components/TransactionHistoryView';
 import { SalesReportView } from './components/SalesReportView';
 import { SettingsView } from './components/SettingsView';
+import { AiTokenUsageView } from './components/AiTokenUsageView';
 import { ReceiptModal } from './components/ReceiptModal';
 import {
   verifyAdminLogin,
@@ -493,6 +494,10 @@ export default function App() {
               transactions={transactions}
               menuItems={menuItems}
             />
+          )}
+
+          {activeTab === 'ai-token' && (
+            <AiTokenUsageView />
           )}
 
           {activeTab === 'pengaturan' && (

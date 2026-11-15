@@ -3,7 +3,7 @@ import cors from 'cors';
 import { env } from './config/env.js';
 import { initWhatsApp, getWhatsAppStatus, sendTextMessage, sendImageMessage } from './services/whatsapp.js';
 import { getOwnerPhoneList } from './config/env.js';
-import { getLowStockIngredients } from './services/supabaseService.js';
+import { getLowStockIngredients, getTokenUsageStats } from './services/supabaseService.js';
 
 const app = express();
 
@@ -194,6 +194,25 @@ app.post('/api/alert-owner-stock', async (_req: Request, res: Response) => {
     res.status(200).json({ success: true, sentTo: owners.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. API REST: Monitoring Kuota & Penggunaan Token AI Agent
+app.get('/api/token-usage', async (_req: Request, res: Response) => {
+  try {
+    const waStatus = getWhatsAppStatus();
+    const tokenStats = await getTokenUsageStats();
+
+    res.status(200).json({
+      success: true,
+      whatsapp: {
+        isConnected: waStatus.isConnected,
+        connectedUser: waStatus.connectedUser
+      },
+      ...tokenStats
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat statistik token' });
   }
 });
 

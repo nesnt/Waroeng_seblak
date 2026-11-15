@@ -161,7 +161,7 @@ const generateWithModelFallback = async (params: {
   tools: any;
   temperature: number;
   maxOutputTokens?: number;
-}) => {
+}): Promise<{ response: any; usedModel: string }> => {
   const modelsToTry = Array.from(new Set(CANDIDATE_MODELS));
   let lastError: any = null;
 
@@ -178,7 +178,7 @@ const generateWithModelFallback = async (params: {
           maxOutputTokens: params.maxOutputTokens || 650
         }
       });
-      return response;
+      return { response, usedModel: model };
     } catch (err: any) {
       console.warn(`[Gemini] Model ${model} mengalami kendala: ${err.message?.slice(0, 100)}. Beralih ke model cadangan...`);
       lastError = err;
@@ -192,6 +192,12 @@ export interface ProcessMessageResult {
   text: string;
   mediaUrl?: string;
   toolCallsExecuted: Array<{ toolName: string; args: any; result: any }>;
+  tokenUsage?: {
+    promptTokens: number;
+    candidatesTokens: number;
+    totalTokens: number;
+    model: string;
+  };
 }
 
 /**
@@ -295,19 +301,30 @@ export const processMessage = async (
   let loopCount = 0;
   const MAX_LOOPS = 5;
   let finalText = '';
+  let totalPromptTokens = 0;
+  let totalCandidatesTokens = 0;
+  let totalTokens = 0;
+  let activeModel = env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 
   try {
     while (loopCount < MAX_LOOPS) {
       loopCount++;
 
       // Panggil Gemini via SDK resmi dengan fallback cerdas & konfigurasi kecepatan tinggi
-      const response = await generateWithModelFallback({
+      const { response, usedModel } = await generateWithModelFallback({
         contents: currentContents as any,
         systemInstruction,
         tools: tools as any,
         temperature: role === 'OWNER' ? 0.15 : 0.6,
         maxOutputTokens: 650
       });
+      activeModel = usedModel;
+
+      if (response.usageMetadata) {
+        totalPromptTokens += response.usageMetadata.promptTokenCount || 0;
+        totalCandidatesTokens += response.usageMetadata.candidatesTokenCount || 0;
+        totalTokens += response.usageMetadata.totalTokenCount || 0;
+      }
 
       const candidate = response.candidates?.[0];
       const content = candidate?.content;
@@ -425,7 +442,13 @@ export const processMessage = async (
   return {
     text: finalText,
     mediaUrl: detectedMediaUrl,
-    toolCallsExecuted
+    toolCallsExecuted,
+    tokenUsage: {
+      promptTokens: totalPromptTokens,
+      candidatesTokens: totalCandidatesTokens,
+      totalTokens: totalTokens > 0 ? totalTokens : (totalPromptTokens + totalCandidatesTokens),
+      model: activeModel
+    }
   };
 };
 

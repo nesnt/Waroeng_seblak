@@ -18,6 +18,7 @@ import {
   Edit2,
   LogOut,
   CupSoda,
+  Bot,
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -86,6 +87,7 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
     { id: 'minuman', label: 'Menu & Minuman', icon: CupSoda },
     { id: 'riwayat', label: 'Riwayat Transaksi', icon: ReceiptText },
     { id: 'laporan', label: 'Laporan Omset', icon: BarChart3 },
+    { id: 'ai-token', label: 'AI & Token Kuota', icon: Bot },
     { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
   ];
 
@@ -275,8 +277,21 @@ export const MobileNavigation: React.FC<NavigationProps> = ({
           </div>
         </div>
 
-        {/* Kanan: Icon Akun User Saja + Tombol Tema */}
+        {/* Kanan: Tombol AI Token + Icon Akun User + Tombol Tema */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <button
+            onClick={() => onTabChange('ai-token')}
+            className={`p-2 rounded-xl border transition cursor-pointer ${
+              activeTab === 'ai-token'
+                ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200/80 dark:border-stone-700 hover:bg-stone-200 dark:hover:bg-stone-700'
+            }`}
+            title="Monitoring Kuota AI & Token"
+            aria-label="Monitoring Kuota AI & Token"
+          >
+            <Bot className="w-4 h-4" />
+          </button>
+
           <button
             onClick={() => setIsAccountModalOpen(true)}
             className="relative p-2 rounded-xl bg-linear-to-br from-orange-500 to-red-600 text-white shadow-xs hover:opacity-95 transition cursor-pointer"

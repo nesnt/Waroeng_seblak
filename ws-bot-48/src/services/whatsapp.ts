@@ -327,14 +327,15 @@ export const initWhatsApp = async (): Promise<WASocket> => {
           console.log(`[Pesan Terkirim] Berhasil membalas pesan ke ${pushName} (${cleanPhone})`);
         }
 
-        // Simpan audit log ke Supabase secara asynchronous
+        // Simpan audit log & data token ke Supabase secara asynchronous
         logChatToSupabase({
           senderJid,
           senderRole: role,
           senderName: pushName,
           incomingMessage: incomingText,
           aiResponse: result.text,
-          toolCallsExecuted: result.toolCallsExecuted
+          toolCallsExecuted: result.toolCallsExecuted,
+          tokenUsage: result.tokenUsage
         }).catch(() => {});
 
       } catch (err: any) {
