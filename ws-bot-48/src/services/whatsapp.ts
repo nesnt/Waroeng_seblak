@@ -47,10 +47,19 @@ export const getQuickMenuFooter = (role: UserRole): string => {
   return `\n\n━━━━━━━━━━━━━━━━━━━━\n📌 *PILIHAN MENU CEPAT:*\n1️⃣ 📋 Daftar Menu & Harga\n2️⃣ 🌶️ Rekomendasi Topping & Level Pedas\n3️⃣ 📍 Alamat & Jam Buka Warung\n4️⃣ 🎁 Brosur Menu & Promo\n5️⃣ 🔄 Mulai Ulang Obrolan\n━━━━━━━━━━━━━━━━━━━━\n👉 _Ketik angka *1 - 5* untuk pilih cepat!_`;
 };
 
+export interface ShortcutResolution {
+  textToProcess: string;
+  isReset: boolean;
+  directTool?: {
+    name: string;
+    args: any;
+  };
+}
+
 /**
  * Menerjemahkan angka/kata kunci pintasan menjadi perintah lengkap untuk AI
  */
-export const resolveShortcutText = (text: string, role: UserRole): { textToProcess: string; isReset: boolean } => {
+export const resolveShortcutText = (text: string, role: UserRole): ShortcutResolution => {
   const clean = text.trim().toLowerCase();
 
   // Reset sesi obrolan
@@ -63,21 +72,37 @@ export const resolveShortcutText = (text: string, role: UserRole): { textToProce
       case '1':
       case 'omset':
       case 'cek omset':
-        return { textToProcess: 'Tolong berikan ringkasan omset penjualan dan transaksi kasir hari ini secara lengkap.', isReset: false };
+        return {
+          textToProcess: 'Tolong berikan ringkasan omset penjualan dan transaksi kasir hari ini secara lengkap.',
+          isReset: false,
+          directTool: { name: 'cek_omset_harian', args: {} }
+        };
       case '2':
       case 'stok':
       case 'stok menipis':
       case 'cek stok':
-        return { textToProcess: 'Bahan baku atau minuman apa saja yang stoknya menipis atau habis di bawah batas aman?', isReset: false };
+        return {
+          textToProcess: 'Bahan baku atau minuman apa saja yang stoknya menipis atau habis di bawah batas aman?',
+          isReset: false,
+          directTool: { name: 'cek_stok_kritis', args: {} }
+        };
       case '3':
       case 'transaksi':
       case 'kasir':
       case 'cek transaksi':
-        return { textToProcess: 'Tolong tampilkan daftar beberapa transaksi penjualan terakhir yang dicatat di kasir.', isReset: false };
+        return {
+          textToProcess: 'Tolong tampilkan daftar beberapa transaksi penjualan terakhir yang dicatat di kasir.',
+          isReset: false,
+          directTool: { name: 'cek_transaksi_terakhir', args: { jumlah: 5 } }
+        };
       case '4':
       case 'semua stok':
       case 'inventori':
-        return { textToProcess: 'Tolong tampilkan seluruh inventori stok bahan baku dan minuman warung saat ini.', isReset: false };
+        return {
+          textToProcess: 'Tolong tampilkan seluruh inventori stok bahan baku dan minuman warung saat ini.',
+          isReset: false,
+          directTool: { name: 'cek_seluruh_stok', args: { kategori: 'all' } }
+        };
       default:
         return { textToProcess: text, isReset: false };
     }
@@ -88,7 +113,11 @@ export const resolveShortcutText = (text: string, role: UserRole): { textToProce
       case 'menu':
       case 'katalog':
       case 'harga':
-        return { textToProcess: 'Halo kak, bisa tolong tampilkan katalog menu seblak prasmanan, aneka topping, dan minuman beserta harganya?', isReset: false };
+        return {
+          textToProcess: 'Halo kak, bisa tolong tampilkan katalog menu seblak prasmanan, aneka topping, dan minuman beserta harganya?',
+          isReset: false,
+          directTool: { name: 'lihat_katalog_menu', args: {} }
+        };
       case '2':
       case 'topping':
       case 'rekomendasi':
@@ -98,11 +127,19 @@ export const resolveShortcutText = (text: string, role: UserRole): { textToProce
       case 'alamat':
       case 'lokasi':
       case 'jam buka':
-        return { textToProcess: 'Bisa minta informasi alamat lengkap warung, petunjuk lokasi, dan jam operasional bukanya?', isReset: false };
+        return {
+          textToProcess: 'Bisa minta informasi alamat lengkap warung, petunjuk lokasi, dan jam operasional bukanya?',
+          isReset: false,
+          directTool: { name: 'info_warung_dan_lokasi', args: {} }
+        };
       case '4':
       case 'brosur':
       case 'promo':
-        return { textToProcess: 'Bisa minta link foto brosur menu dan info promo terbaru Waroeng Seblak 48?', isReset: false };
+        return {
+          textToProcess: 'Bisa minta link foto brosur menu dan info promo terbaru Waroeng Seblak 48?',
+          isReset: false,
+          directTool: { name: 'ambil_brosur_promo', args: {} }
+        };
       default:
         return { textToProcess: text, isReset: false };
     }
@@ -238,7 +275,7 @@ export const initWhatsApp = async (): Promise<WASocket> => {
       const sendOptions = getMessageSendOptions();
 
       // Periksa apakah pesan merupakan pintasan angka/menu atau permintaan reset sesi sekali pakai
-      const { textToProcess, isReset } = resolveShortcutText(incomingText, role);
+      const { textToProcess, isReset, directTool } = resolveShortcutText(incomingText, role);
 
       if (isReset) {
         resetUserSession(senderJid);
@@ -256,13 +293,17 @@ export const initWhatsApp = async (): Promise<WASocket> => {
       }
 
       try {
-        // Tampilkan indikator "sedang mengetik..." di WhatsApp
+        // Tampilkan indikator "sedang mengetik..." secara asynchronous (non-blocking agar tidak menambah delay)
         if (sock) {
-          await sock.sendPresenceUpdate('composing', senderJid);
+          sock.sendPresenceUpdate('composing', senderJid).catch(() => {});
         }
 
-        // Proses pesan melalui Google Gemini AI & Function Calling
-        const result = await processMessage(senderJid, textToProcess, role);
+        const startTime = Date.now();
+
+        // Proses pesan melalui Google Gemini AI & Function Calling (dengan Fast-Path jika pintasan)
+        const result = await processMessage(senderJid, textToProcess, role, directTool);
+        const duration = Date.now() - startTime;
+        console.log(`⏱️ [Latency] Total respon selesai dalam ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
 
         // Sematkan footer menu opsi cepat jika belum ada di dalam balasan
         const finalTextWithMenu = result.text.includes('━━━━━━━━━━━━━━━━━━━━')

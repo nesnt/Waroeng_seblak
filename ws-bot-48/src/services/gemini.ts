@@ -160,6 +160,7 @@ const generateWithModelFallback = async (params: {
   systemInstruction: string;
   tools: any;
   temperature: number;
+  maxOutputTokens?: number;
 }) => {
   const modelsToTry = Array.from(new Set(CANDIDATE_MODELS));
   let lastError: any = null;
@@ -173,7 +174,8 @@ const generateWithModelFallback = async (params: {
         config: {
           systemInstruction: params.systemInstruction,
           tools: params.tools,
-          temperature: params.temperature
+          temperature: params.temperature,
+          maxOutputTokens: params.maxOutputTokens || 650
         }
       });
       return response;
@@ -198,7 +200,8 @@ export interface ProcessMessageResult {
 export const processMessage = async (
   senderJid: string,
   incomingText: string,
-  role: UserRole
+  role: UserRole,
+  directTool?: { name: string; args: any }
 ): Promise<ProcessMessageResult> => {
   // 1. Ambil atau inisialisasi sesi percakapan
   let session = sessionStore.get(senderJid);
@@ -230,6 +233,65 @@ export const processMessage = async (
   const toolCallsExecuted: Array<{ toolName: string; args: any; result: any }> = [];
   let detectedMediaUrl: string | undefined = undefined;
 
+  // 4. FAST-PATH OPTIMIZATION (Bypass 1 Round-Trip Gemini):
+  // Jika perintah merupakan opsi pintasan angka/menu (seperti 1, 2, 3, 4),
+  // langsung eksekusi tool ke database sekarang juga agar menghemat 2-3 detik waktu tunggu!
+  if (directTool) {
+    console.log(`⚡ [Fast-Path] Menjalankan tool "${directTool.name}" secara langsung (Bypass Turn 1)...`);
+    let executionResult: any;
+    try {
+      if (role === 'OWNER') {
+        executionResult = await executeOwnerTool(directTool.name, directTool.args);
+      } else {
+        executionResult = await executeCustomerTool(directTool.name, directTool.args);
+      }
+    } catch (execErr: any) {
+      logServerError(`Fast-Path Tool "${directTool.name}"`, execErr, {
+        senderJid,
+        senderRole: role,
+        toolName: directTool.name,
+        toolArgs: directTool.args
+      });
+      executionResult = {
+        status: 'maintenance',
+        pesan: 'Data operasional sementara belum dapat diambil karena kendala sinkronisasi internal.'
+      };
+    }
+
+    toolCallsExecuted.push({
+      toolName: directTool.name,
+      args: directTool.args,
+      result: executionResult
+    });
+
+    if (executionResult?.urlBrosur) {
+      detectedMediaUrl = executionResult.urlBrosur;
+    }
+
+    // Injeksi panggilan fungsi dan respons fungsi langsung ke giliran dialog
+    currentContents.push({
+      role: 'model',
+      parts: [{
+        functionCall: {
+          name: directTool.name,
+          args: directTool.args
+        }
+      }]
+    });
+
+    currentContents.push({
+      role: 'user',
+      parts: [{
+        functionResponse: {
+          name: directTool.name,
+          response: {
+            output: executionResult
+          }
+        }
+      }]
+    });
+  }
+
   let loopCount = 0;
   const MAX_LOOPS = 5;
   let finalText = '';
@@ -238,12 +300,13 @@ export const processMessage = async (
     while (loopCount < MAX_LOOPS) {
       loopCount++;
 
-      // Panggil Gemini via SDK resmi dengan fallback cerdas
+      // Panggil Gemini via SDK resmi dengan fallback cerdas & konfigurasi kecepatan tinggi
       const response = await generateWithModelFallback({
         contents: currentContents as any,
         systemInstruction,
         tools: tools as any,
-        temperature: role === 'OWNER' ? 0.3 : 0.7
+        temperature: role === 'OWNER' ? 0.15 : 0.6,
+        maxOutputTokens: 650
       });
 
       const candidate = response.candidates?.[0];

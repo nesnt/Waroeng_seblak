@@ -44,6 +44,29 @@ export const formatRupiah = (value: number): string => {
 };
 
 // ==========================================
+// IN-MEMORY SHORT-TERM CACHE (Optimasi Latensi Cepat)
+// ==========================================
+interface CacheEntry<T> {
+  data: T;
+  expiry: number;
+}
+const memoryCache = new Map<string, CacheEntry<any>>();
+
+const getFromCache = <T>(key: string): T | null => {
+  const item = memoryCache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expiry) {
+    memoryCache.delete(key);
+    return null;
+  }
+  return item.data as T;
+};
+
+const saveToCache = <T>(key: string, data: T, ttlMs: number) => {
+  memoryCache.set(key, { data, expiry: Date.now() + ttlMs });
+};
+
+// ==========================================
 // 1. OWNER QUERIES & OPERATIONS
 // ==========================================
 
@@ -106,6 +129,10 @@ export const getDailyOmset = async (dateStr?: string): Promise<DailyOmsetSummary
  * Mengambil daftar bahan baku & minuman yang stoknya menipis atau habis
  */
 export const getLowStockIngredients = async (threshold?: number): Promise<{ ingredients: StockItem[]; drinks: StockItem[] }> => {
+  const cacheKey = `low_stock_${threshold ?? 'default'}`;
+  const cached = getFromCache<{ ingredients: StockItem[]; drinks: StockItem[] }>(cacheKey);
+  if (cached) return cached;
+
   try {
     // 1. Ambil bahan baku & topping dari ingredients
     const { data: ingData, error: ingError } = await supabase
@@ -153,10 +180,12 @@ export const getLowStockIngredients = async (threshold?: number): Promise<{ ingr
         price: Number(item.base_price) || 0
       }));
 
-    return {
+    const result = {
       ingredients: lowIngredients,
       drinks: lowDrinks
     };
+    saveToCache(cacheKey, result, 15 * 1000); // Cache 15 detik
+    return result;
   } catch (err: any) {
     console.error('[supabaseService.getLowStockIngredients Error]:', err.message);
     throw new Error(`Gagal mengambil data stok kritis: ${err.message}`);
@@ -356,6 +385,10 @@ export const getRecentTransactions = async (limit: number = 5): Promise<any[]> =
  * Mengambil seluruh katalog menu & topping untuk pelanggan
  */
 export const getCatalog = async (categoryFilter?: string): Promise<CatalogItem[]> => {
+  const cacheKey = `catalog_${categoryFilter || 'all'}`;
+  const cached = getFromCache<CatalogItem[]>(cacheKey);
+  if (cached) return cached;
+
   const catalog: CatalogItem[] = [];
 
   try {
@@ -405,6 +438,7 @@ export const getCatalog = async (categoryFilter?: string): Promise<CatalogItem[]
       }
     }
 
+    saveToCache(cacheKey, catalog, 30 * 1000); // Cache 30 detik
     return catalog;
   } catch (err: any) {
     console.error('[supabaseService.getCatalog Error]:', err.message);
@@ -470,6 +504,9 @@ export const checkMenuAvailability = async (query: string): Promise<{ found: boo
  * Mengambil informasi profil warung dari database atau env fallback
  */
 export const getStoreInfo = async (): Promise<{ storeName: string; address: string; hours: string; phone: string; slogan?: string }> => {
+  const cached = getFromCache<{ storeName: string; address: string; hours: string; phone: string; slogan?: string }>('store_info');
+  if (cached) return cached;
+
   try {
     const { data } = await supabase
       .from('store_settings')
@@ -478,31 +515,38 @@ export const getStoreInfo = async (): Promise<{ storeName: string; address: stri
 
     if (data && data.length > 0) {
       const s = data[0];
-      return {
+      const result = {
         storeName: s.store_name || env.STORE_NAME,
         address: s.address || env.STORE_ADDRESS,
         hours: s.opening_hours || env.STORE_HOURS,
         phone: s.phone || '0812-3456-7890',
         slogan: s.slogan || 'Sensasi Seblak Prasmanan Juara Pedas'
       };
+      saveToCache('store_info', result, 10 * 60 * 1000); // Cache 10 menit
+      return result;
     }
   } catch (err) {
     // Fallback ke env
   }
 
-  return {
+  const fallback = {
     storeName: env.STORE_NAME,
     address: env.STORE_ADDRESS,
     hours: env.STORE_HOURS,
     phone: '0812-3456-7890',
     slogan: 'Sensasi Seblak Prasmanan Juara Pedas'
   };
+  saveToCache('store_info', fallback, 10 * 60 * 1000);
+  return fallback;
 };
 
 /**
  * Mengambil link brosur atau promo digital
  */
 export const getBrochureOrPromoUrl = async (): Promise<string> => {
+  const cached = getFromCache<string>('brochure_url');
+  if (cached) return cached;
+
   try {
     const { data } = await supabase
       .from('store_settings')
@@ -510,13 +554,16 @@ export const getBrochureOrPromoUrl = async (): Promise<string> => {
       .limit(1);
 
     if (data && data[0]?.brochure_url) {
+      saveToCache('brochure_url', data[0].brochure_url, 10 * 60 * 1000);
       return data[0].brochure_url;
     }
   } catch (err) {
     // Fallback
   }
 
-  return env.BROCHURE_URL || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80';
+  const fallbackUrl = env.BROCHURE_URL || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80';
+  saveToCache('brochure_url', fallbackUrl, 10 * 60 * 1000);
+  return fallbackUrl;
 };
 
 // ==========================================
