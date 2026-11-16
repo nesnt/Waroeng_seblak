@@ -251,3 +251,107 @@ export async function printDirectBluetooth(
     };
   }
 }
+
+/**
+ * Format teks struk polos untuk dibagikan / disalin ke aplikasi printer iOS pihak ketiga
+ */
+export function generateReceiptPlainText(
+  transaction: Transaction,
+  settings: StoreSettings
+): string {
+  const combined = `${transaction.notes || ''} ${transaction.items
+    .map((i) => i.notes || '')
+    .join(' ')}`;
+
+  let dineType = 'Makan di Sini';
+  if (/dibungkus|takeaway|take away|bawa pulang/i.test(combined)) {
+    dineType = 'Dibungkus';
+  }
+
+  let brothType = 'Asin Manis';
+  const brothMatch = combined.match(/kuah[:\s]+([^|·,]+)/i);
+  if (brothMatch && brothMatch[1]) {
+    brothType = brothMatch[1].trim();
+  }
+
+  let spicy = 'Original';
+  const spicyMatch = combined.match(/pedas[:\s]+([^|·,]+)/i);
+  if (spicyMatch && spicyMatch[1]) {
+    const raw = spicyMatch[1].trim();
+    spicy = /^\d+$/.test(raw) ? `Level ${raw}` : raw;
+  } else {
+    const seblak = transaction.items.find((it) => it.levelPedas !== undefined);
+    if (seblak) {
+      spicy = seblak.levelPedas === 0 ? 'Original' : `Level ${seblak.levelPedas}`;
+    }
+  }
+
+  let customerNote = '';
+  const noteMatch = combined.match(/catatan[:\s]+([^|·]+)/i);
+  if (noteMatch && noteMatch[1]) {
+    customerNote = noteMatch[1].trim();
+  }
+
+  const drinkItems: OrderItem[] = [];
+  const toppingMap = new Map<string, number>();
+
+  transaction.items.forEach((item) => {
+    const isDrink =
+      item.menuItemId.startsWith('drink') ||
+      (item.notes && item.notes.toLowerCase().includes('minuman')) ||
+      item.menuItemName.toLowerCase().startsWith('es ') ||
+      item.menuItemName.toLowerCase().includes('teh') ||
+      item.menuItemName.toLowerCase().includes('jeruk') ||
+      item.menuItemName.toLowerCase().includes('air mineral');
+
+    if (isDrink) {
+      drinkItems.push(item);
+    } else {
+      if (item.toppings && item.toppings.length > 0) {
+        item.toppings.forEach((t) => {
+          toppingMap.set(t.name, (toppingMap.get(t.name) || 0) + 1);
+        });
+      }
+    }
+  });
+
+  const toppingsList = Array.from(toppingMap.entries()).map(([name, count]) => ({
+    name,
+    count,
+  }));
+  const totalToppingQty = toppingsList.reduce((acc, t) => acc + t.count, 0);
+
+  const lines = [
+    `       ${settings.storeName || 'WAROENG SEBLAK 48'}`,
+    settings.slogan ? `       ${settings.slogan}` : '',
+    settings.address ? `       ${settings.address}` : '',
+    settings.phone ? `       WA: ${settings.phone}` : '',
+    '--------------------------------',
+    `No. Nota  : ${transaction.invoiceNumber}`,
+    `Waktu     : ${formatIndonesianDate(transaction.date)}`,
+    `Pelanggan : ${transaction.customerName || 'Pelanggan Umum'}`,
+    '--------------------------------',
+    `MAKAN DI: ${dineType.toUpperCase()}`,
+    `KUAH    : ${brothType.toUpperCase()}`,
+    `PEDAS   : ${spicy.toUpperCase()}`,
+    customerNote ? `Catatan : ${customerNote}` : '',
+    '--------------------------------',
+    `TOPPING ${totalToppingQty > 0 ? `(${totalToppingQty} pcs)` : ''}:`,
+    ...(toppingsList.length > 0
+      ? toppingsList.map((t) => ` • ${t.name} x${t.count}`)
+      : [' - Tanpa Topping Tambahan -']),
+    '--------------------------------',
+    'MINUMAN:',
+    ...(drinkItems.length > 0
+      ? drinkItems.map((d) => ` • ${d.menuItemName} x${d.quantity}`)
+      : [' - Tanpa Minuman -']),
+    '--------------------------------',
+    `TOTAL: ${formatRupiah(transaction.totalAmount)}`,
+    '--------------------------------',
+    '  Hatur Nuhun! Wilujeng Tuang!  ',
+    ' Simpan struk bukti pembayaran. ',
+    '\n\n',
+  ];
+
+  return lines.filter(Boolean).join('\n');
+}

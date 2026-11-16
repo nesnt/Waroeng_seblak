@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Transaction, StoreSettings, OrderItem } from '../types';
 import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
-import { printDirectBluetooth } from '../utils/bluetoothPrint';
-import { Printer, X, CheckCircle2, Info, Bluetooth, Loader2 } from 'lucide-react';
+import { printDirectBluetooth, generateReceiptPlainText } from '../utils/bluetoothPrint';
+import { Printer, X, CheckCircle2, Info, Bluetooth, Loader2, Share2, Check } from 'lucide-react';
 
 interface ReceiptModalProps {
   transaction: Transaction | null;
@@ -19,6 +19,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const [isPrintingBt, setIsPrintingBt] = useState(false);
   const [btStatusMsg, setBtStatusMsg] = useState<string | null>(null);
   const [btStatusType, setBtStatusType] = useState<'success' | 'error'>('success');
+  const [isCopied, setIsCopied] = useState(false);
 
   if (!transaction) return null;
 
@@ -43,6 +44,28 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
       setBtStatusMsg(e.message || 'Terjadi kesalahan koneksi Bluetooth.');
     } finally {
       setIsPrintingBt(false);
+    }
+  };
+
+  const handleShareOrCopy = async () => {
+    const plainText = generateReceiptPlainText(transaction, settings);
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Struk ${transaction.invoiceNumber}`,
+          text: plainText,
+        });
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          await navigator.clipboard.writeText(plainText);
+          setIsCopied(true);
+          setTimeout(() => setIsCopied(false), 2000);
+        }
+      }
+    } else {
+      await navigator.clipboard.writeText(plainText);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
     }
   };
 
@@ -338,43 +361,64 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
               type="button"
               onClick={handlePrint}
-              className="flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer"
+              className="flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer"
               title="Cetak lewat dialog browser / AirPrint"
             >
               <Printer className="w-4 h-4" />
-              <span>Cetak (AirPrint / PC)</span>
+              <span>Cetak (AirPrint)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleShareOrCopy}
+              className="flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-stone-900 dark:bg-white text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-100 font-black text-xs sm:text-sm shadow-md active:scale-98 transition cursor-pointer"
+              title="Bagikan atau salin teks struk ke aplikasi printer Bluetooth iOS"
+            >
+              {isCopied ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-500" />
+                  <span>Tersalin!</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-4 h-4 text-blue-400 dark:text-blue-600" />
+                  <span>Bagikan Struk</span>
+                </>
+              )}
             </button>
 
             <button
               type="button"
               disabled={isPrintingBt}
               onClick={handleBluetoothPrint}
-              className="flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-stone-900 dark:bg-white text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-100 font-black text-xs sm:text-sm shadow-md active:scale-98 transition cursor-pointer disabled:opacity-50"
-              title="Cetak langsung via Bluetooth (iOS Bluefy / Chrome)"
+              className="flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 hover:bg-stone-300 dark:hover:bg-stone-700 font-bold text-xs sm:text-sm active:scale-98 transition cursor-pointer disabled:opacity-50"
+              title="Cetak langsung via Bluetooth (Khusus Web Bluetooth)"
             >
               {isPrintingBt ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <Bluetooth className="w-4 h-4 text-blue-400 dark:text-blue-600" />
+                <Bluetooth className="w-4 h-4 text-blue-600" />
               )}
-              <span>Cetak via Bluetooth (iOS)</span>
+              <span>Bluetooth Direct</span>
             </button>
+          </div>
 
+          <div className="flex justify-end pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="py-3 px-4 rounded-2xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 font-bold text-xs sm:text-sm transition cursor-pointer"
+              className="w-full sm:w-auto py-2.5 px-6 rounded-2xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 font-bold text-xs transition cursor-pointer"
             >
               Tutup
             </button>
           </div>
 
           <p className="text-[10.5px] text-center text-stone-500 dark:text-stone-400 leading-tight">
-            💡 Di iPhone: Gunakan <strong>Cetak (AirPrint)</strong> jika lewat dialog standar, atau buka via browser <strong>Bluefy</strong> di App Store untuk cetak langsung via Bluetooth BLE.
+            💡 Di Safari iPhone: Tekan <strong>Bagikan Struk</strong> untuk mengirim struk langsung ke aplikasi printer Bluetooth, atau tekan <strong>Cetak (AirPrint)</strong>.
           </p>
         </div>
       </div>

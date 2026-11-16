@@ -12,6 +12,28 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      window.addEventListener('error', function(e) {
+        var el = document.getElementById('app-error-display');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'app-error-display';
+          el.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#ffffff;color:#b91c1c;padding:24px;z-index:999999;font-family:sans-serif;font-size:13px;overflow:auto;';
+          document.body.appendChild(el);
+        }
+        el.innerHTML += '<h3 style="margin:0 0 8px;font-size:16px;">⚠️ Error Sistem:</h3><p style="font-weight:bold;margin:0 0 4px;">' + e.message + '</p><p style="color:#666;font-size:11px;margin:0 0 12px;">' + (e.filename || '') + ':' + e.lineno + '</p>';
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var el = document.getElementById('app-error-display');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'app-error-display';
+          el.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#ffffff;color:#b91c1c;padding:24px;z-index:999999;font-family:sans-serif;font-size:13px;overflow:auto;';
+          document.body.appendChild(el);
+        }
+        el.innerHTML += '<p style="font-weight:bold;margin:0 0 4px;">⚠️ Rejection: ' + (e.reason ? e.reason.message || e.reason : '') + '</p>';
+      });
+    </script>
   </head>
   <body class="bg-stone-50 text-stone-900 antialiased font-sans selection:bg-orange-500 selection:text-white">
     <div id="root"></div>

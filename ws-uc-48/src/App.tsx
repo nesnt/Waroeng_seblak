@@ -30,7 +30,11 @@ export default function App() {
 
   // Sesi Login Kasir (tersimpan di sessionStorage perangkat)
   const [isCashierLoggedIn, setIsCashierLoggedIn] = useState<boolean>(() => {
-    return sessionStorage.getItem('seblak48_cashier_session') === 'true';
+    try {
+      return sessionStorage.getItem('seblak48_cashier_session') === 'true';
+    } catch {
+      return false;
+    }
   });
 
   const [ingredients, setIngredients] = useState<Ingredient[]>(() => getIngredients());
