@@ -10,7 +10,7 @@ on:
 jobs:
   build-ios:
     name: Build iOS App
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -33,16 +33,23 @@ jobs:
           npm run build
           npx cap sync ios
 
+      - name: Resolve SPM Dependencies
+        run: |
+          cd ws-ios-48/ios/App
+          xcodebuild -resolvePackageDependencies -project App.xcodeproj -scheme App
+
       - name: Build iOS Archive with Xcode
         run: |
           cd ws-ios-48/ios/App
-          xcodebuild -workspace App.xcworkspace \
+          xcodebuild archive \
+            -project App.xcodeproj \
             -scheme App \
             -configuration Release \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -archivePath ./build/App.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
-            archive
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
 
       - name: Package App (.ipa)
         run: |
