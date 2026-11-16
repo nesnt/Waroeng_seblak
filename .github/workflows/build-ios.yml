@@ -1,0 +1,59 @@
+name: Build iOS App (Waroeng Seblak 48)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ws-ios-48/**'
+      - '.github/workflows/build-ios.yml'
+
+jobs:
+  build-ios:
+    name: Build iOS App
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'ws-ios-48/package-lock.json'
+
+      - name: Install Dependencies
+        run: |
+          cd ws-ios-48
+          npm ci
+
+      - name: Build Web Assets & Sync Capacitor
+        run: |
+          cd ws-ios-48
+          npm run build
+          npx cap sync ios
+
+      - name: Build iOS Archive with Xcode
+        run: |
+          cd ws-ios-48/ios/App
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath ./build/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Package App (.ipa)
+        run: |
+          cd ws-ios-48/ios/App/build/App.xcarchive/Products/Applications
+          mkdir -p Payload
+          cp -r App.app Payload/
+          zip -r ../../../../../WaroengSeblak48.ipa Payload/
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaroengSeblak48-iOS-App
+          path: ws-ios-48/WaroengSeblak48.ipa
+          retention-days: 14
