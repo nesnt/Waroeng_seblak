@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Transaction, StoreSettings } from '../types';
 import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
 import { Printer, X, CheckCircle2, Info } from 'lucide-react';
@@ -22,11 +23,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     window.print();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white dark:bg-stone-900 rounded-3xl shadow-2xl max-w-sm sm:max-w-md w-full border border-stone-200 dark:border-stone-800 overflow-hidden flex flex-col max-h-[92vh]">
+  return createPortal(
+    <div className="receipt-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+      <div className="receipt-modal-box bg-white dark:bg-stone-900 rounded-3xl shadow-2xl max-w-sm sm:max-w-md w-full border border-stone-200 dark:border-stone-800 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header Modal */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50">
+        <div className="no-print flex items-center justify-between px-5 py-4 border-b border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
               <CheckCircle2 className="w-4 h-4" />
@@ -50,13 +51,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Info Petunjuk Cetak Jelas */}
-        <div className="px-5 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+        <div className="no-print px-5 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
           <Info className="w-4 h-4 shrink-0" />
           <span>Teks dibuat tebal & pekat agar hasil pembakaran thermal jelas terbaca.</span>
         </div>
 
         {/* Struk Content (Format Standar Thermal 58mm Pekat & Tajam) */}
-        <div className="p-4 sm:p-5 overflow-y-auto flex-1 flex justify-center bg-stone-100 dark:bg-stone-950/40">
+        <div className="receipt-scroll-container p-4 sm:p-5 overflow-y-auto flex-1 flex justify-center bg-stone-100 dark:bg-stone-950/40">
           <div
             id="printable-receipt"
             className="w-full max-w-[310px] bg-white dark:bg-stone-950 p-4 rounded-xl border border-dashed border-stone-400 dark:border-stone-700 font-sans text-xs text-stone-950 dark:text-stone-50 shadow-sm space-y-2.5"
@@ -160,7 +161,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </div>
 
             {/* Footer Struk */}
-            <div className="text-center pt-2.5 border-t-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-t-2 text-[11px] text-stone-800 dark:text-stone-200 print:text-black space-y-0.5 pb-2 print:pb-8 font-bold">
+            <div className="text-center pt-2.5 border-t-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-t-2 text-[11px] text-stone-800 dark:text-stone-200 print:text-black space-y-0.5 pb-2 print:pb-4 font-bold">
               <p className="font-black text-stone-950 dark:text-white print:text-black">
                 Hatur Nuhun! Wilujeng Tuang!
               </p>
@@ -170,7 +171,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Tombol Aksi */}
-        <div className="p-4 bg-stone-50 dark:bg-stone-950/60 border-t border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row gap-2.5">
+        <div className="no-print p-4 bg-stone-50 dark:bg-stone-950/60 border-t border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row gap-2.5">
           <button
             type="button"
             onClick={handlePrint}
@@ -188,6 +189,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
