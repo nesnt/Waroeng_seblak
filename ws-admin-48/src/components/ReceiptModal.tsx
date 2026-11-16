@@ -33,8 +33,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               <h3 className="font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
                 Struk Transaksi Penjualan
               </h3>
-              <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                Format Thermal 58mm (Woya WP58D)
+              <p className="text-[11px] font-semibold text-stone-500 dark:text-stone-400">
+                Format High-Contrast 58mm (Woya WP58D)
               </p>
             </div>
           </div>
@@ -47,85 +47,85 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </button>
         </div>
 
-        {/* Info Petunjuk Cetak */}
-        <div className="px-5 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2 text-[11px] text-amber-800 dark:text-amber-300">
-          <Info className="w-3.5 h-3.5 shrink-0" />
-          <span>Printer Bluetooth/USB: Gunakan kertas thermal 58mm untuk hasil terbaik.</span>
+        {/* Info Petunjuk Cetak Jelas */}
+        <div className="px-5 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+          <Info className="w-4 h-4 shrink-0" />
+          <span>Teks dibuat tebal & pekat agar hasil pembakaran thermal jelas terbaca.</span>
         </div>
 
-        {/* Struk Content (Format Standar Thermal 58mm) */}
+        {/* Struk Content (Format Standar Thermal 58mm Pekat & Tajam) */}
         <div className="p-4 sm:p-5 overflow-y-auto flex-1 flex justify-center bg-stone-100 dark:bg-stone-950/40">
           <div
             id="printable-receipt"
-            className="w-full max-w-[310px] bg-white dark:bg-stone-950 p-4 rounded-xl border border-dashed border-stone-300 dark:border-stone-700 font-mono text-[11px] text-stone-900 dark:text-stone-100 shadow-sm space-y-2.5"
+            className="w-full max-w-[310px] bg-white dark:bg-stone-950 p-4 rounded-xl border border-dashed border-stone-400 dark:border-stone-700 font-sans text-xs text-stone-950 dark:text-stone-50 shadow-sm space-y-2.5"
           >
             {/* Header Toko */}
-            <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-stone-400 dark:border-stone-700 print:border-black">
-              <h4 className="font-black text-sm uppercase tracking-wider text-stone-900 dark:text-stone-100 print:text-black">
+            <div className="text-center space-y-0.5 pb-2 border-b-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-b-2">
+              <h4 className="font-black text-base uppercase tracking-wider text-stone-950 dark:text-white print:text-black leading-tight">
                 {settings.storeName || 'WAROENG SEBLAK 48'}
               </h4>
               {settings.slogan && (
-                <p className="text-[10px] text-stone-600 dark:text-stone-400 print:text-black">
+                <p className="text-[11px] font-bold text-stone-800 dark:text-stone-200 print:text-black">
                   {settings.slogan}
                 </p>
               )}
               {settings.address && (
-                <p className="text-[10px] text-stone-600 dark:text-stone-400 print:text-black leading-tight">
+                <p className="text-[11px] font-semibold text-stone-800 dark:text-stone-200 print:text-black leading-tight">
                   {settings.address}
                 </p>
               )}
               {settings.phone && (
-                <p className="text-[10px] text-stone-600 dark:text-stone-400 print:text-black">
+                <p className="text-[11px] font-bold text-stone-800 dark:text-stone-200 print:text-black">
                   WA: {settings.phone}
                 </p>
               )}
             </div>
 
             {/* Info Transaksi */}
-            <div className="space-y-0.5 py-1 border-b border-dashed border-stone-400 dark:border-stone-700 print:border-black text-[10px]">
-              <div className="flex justify-between">
-                <span className="text-stone-600 dark:text-stone-400 print:text-black">No. Nota:</span>
-                <span className="font-bold print:text-black">{transaction.invoiceNumber}</span>
+            <div className="space-y-1 py-1 border-b-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-b-2 text-xs">
+              <div className="flex justify-between font-bold">
+                <span className="text-stone-900 dark:text-stone-100 print:text-black">No. Nota:</span>
+                <span className="font-black print:text-black">{transaction.invoiceNumber}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-stone-600 dark:text-stone-400 print:text-black">Waktu:</span>
-                <span className="print:text-black">{formatIndonesianDate(transaction.date)}</span>
+              <div className="flex justify-between font-semibold">
+                <span className="text-stone-900 dark:text-stone-100 print:text-black">Waktu:</span>
+                <span className="print:text-black font-bold">{formatIndonesianDate(transaction.date)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-stone-600 dark:text-stone-400 print:text-black">Pelanggan:</span>
-                <span className="font-semibold print:text-black break-words text-right max-w-[170px]">
+              <div className="flex justify-between font-bold">
+                <span className="text-stone-900 dark:text-stone-100 print:text-black">Pelanggan:</span>
+                <span className="font-black print:text-black break-words text-right max-w-[170px]">
                   {transaction.customerName || 'Pelanggan Umum'}
                 </span>
               </div>
               {transaction.notes && (
-                <div className="pt-0.5 text-stone-600 dark:text-stone-400 print:text-black text-[9.5px] italic leading-tight break-words">
+                <div className="pt-0.5 text-stone-800 dark:text-stone-200 print:text-black text-[11px] font-semibold leading-tight break-words">
                   {transaction.notes}
                 </div>
               )}
             </div>
 
             {/* Daftar Item */}
-            <div className="space-y-2 py-1.5 border-b border-dashed border-stone-400 dark:border-stone-700 print:border-black">
+            <div className="space-y-2 py-1.5 border-b-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-b-2">
               {transaction.items.map((item, idx) => (
-                <div key={idx} className="space-y-0.5 leading-tight">
-                  <div className="flex justify-between items-start gap-1 font-bold text-[11px]">
+                <div key={idx} className="space-y-0.5 leading-snug">
+                  <div className="flex justify-between items-start gap-1 font-black text-xs">
                     <span className="break-words flex-1 print:text-black">
                       {item.menuItemName} x{item.quantity}
                     </span>
                     <span className="shrink-0 print:text-black">{formatRupiah(item.subtotal)}</span>
                   </div>
                   {item.levelPedas > 0 && (
-                    <div className="text-[9.5px] text-orange-600 dark:text-orange-400 print:text-black pl-1.5 font-medium">
-                      Pedas: Level {item.levelPedas}
+                    <div className="text-[11px] text-orange-700 dark:text-orange-300 print:text-black pl-1.5 font-bold">
+                      🔥 Pedas: Level {item.levelPedas}
                     </div>
                   )}
                   {item.toppings && item.toppings.length > 0 && (
-                    <div className="text-[9.5px] text-stone-600 dark:text-stone-400 print:text-black pl-1.5 leading-tight">
+                    <div className="text-[11px] text-stone-800 dark:text-stone-200 print:text-black pl-1.5 font-semibold leading-tight">
                       + Topping: {item.toppings.map((t) => t.name).join(', ')}
                     </div>
                   )}
                   {item.notes && (
-                    <div className="text-[9.5px] text-stone-500 dark:text-stone-400 print:text-black italic pl-1.5">
+                    <div className="text-[11px] text-stone-700 dark:text-stone-300 print:text-black italic pl-1.5 font-medium">
                       Catatan: {item.notes}
                     </div>
                   )}
@@ -134,22 +134,22 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </div>
 
             {/* Total & Pembayaran */}
-            <div className="space-y-1 pt-1.5 text-[10.5px]">
-              <div className="flex justify-between font-black text-xs text-stone-900 dark:text-stone-100 print:text-black">
+            <div className="space-y-1.5 pt-1 text-xs">
+              <div className="flex justify-between font-black text-sm text-stone-950 dark:text-white print:text-black">
                 <span>TOTAL:</span>
                 <span>{formatRupiah(transaction.totalAmount)}</span>
               </div>
-              <div className="flex justify-between text-stone-700 dark:text-stone-300 print:text-black">
+              <div className="flex justify-between font-bold text-stone-900 dark:text-stone-100 print:text-black">
                 <span>Metode Bayar:</span>
-                <span className="font-semibold">{transaction.paymentMethod}</span>
+                <span className="font-black">{transaction.paymentMethod}</span>
               </div>
               {transaction.paymentMethod === 'Tunai' && (
                 <>
-                  <div className="flex justify-between text-stone-600 dark:text-stone-400 print:text-black">
+                  <div className="flex justify-between font-bold text-stone-800 dark:text-stone-200 print:text-black">
                     <span>Tunai:</span>
-                    <span>{formatRupiah(transaction.cashReceived || transaction.totalAmount)}</span>
+                    <span className="font-black">{formatRupiah(transaction.cashReceived || transaction.totalAmount)}</span>
                   </div>
-                  <div className="flex justify-between font-bold text-emerald-700 dark:text-emerald-400 print:text-black">
+                  <div className="flex justify-between font-black text-emerald-800 dark:text-emerald-300 print:text-black text-xs sm:text-sm">
                     <span>Kembalian:</span>
                     <span>{formatRupiah(transaction.change || 0)}</span>
                   </div>
@@ -158,11 +158,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </div>
 
             {/* Footer Struk */}
-            <div className="text-center pt-2.5 border-t border-dashed border-stone-400 dark:border-stone-700 print:border-black text-[9.5px] text-stone-600 dark:text-stone-400 print:text-black space-y-0.5 pb-2 print:pb-6">
-              <p className="font-bold text-stone-800 dark:text-stone-200 print:text-black">
+            <div className="text-center pt-2.5 border-t-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-t-2 text-[11px] text-stone-800 dark:text-stone-200 print:text-black space-y-0.5 pb-2 print:pb-8 font-bold">
+              <p className="font-black text-stone-950 dark:text-white print:text-black">
                 Hatur Nuhun! Wilujeng Tuang!
               </p>
-              <p>Stok bahan telah otomatis terpotong dari resep.</p>
+              <p>Simpan struk ini sebagai bukti pembayaran yang sah.</p>
             </div>
           </div>
         </div>
