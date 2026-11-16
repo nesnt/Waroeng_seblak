@@ -2,8 +2,23 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Transaction, StoreSettings, OrderItem } from '../types';
 import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
-import { printDirectBluetooth, generateReceiptPlainText } from '../utils/bluetoothPrint';
-import { Printer, X, CheckCircle2, Info, Bluetooth, Loader2, Share2, Check } from 'lucide-react';
+import {
+  printDirectBluetooth,
+  generateReceiptPlainText,
+  copyTextToClipboard,
+} from '../utils/bluetoothPrint';
+import {
+  Printer,
+  X,
+  CheckCircle2,
+  Info,
+  Bluetooth,
+  Loader2,
+  Check,
+  Copy,
+  Download,
+  FileText,
+} from 'lucide-react';
 
 interface ReceiptModalProps {
   transaction: Transaction | null;
@@ -22,8 +37,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const [btStatusMsg, setBtStatusMsg] = useState<string | null>(null);
   const [btStatusType, setBtStatusType] = useState<'success' | 'error'>('success');
   const [isCopied, setIsCopied] = useState(false);
+  const [showRawText, setShowRawText] = useState(false);
 
   if (!transaction) return null;
+
+  const plainReceiptText = generateReceiptPlainText(transaction, settings);
 
   const handlePrint = () => {
     window.print();
@@ -50,24 +68,60 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   };
 
   const handleShareOrCopy = async () => {
-    const plainText = generateReceiptPlainText(transaction, settings);
-    if (navigator.share) {
+    // 1. Jika Web Share API didukung (misal di Safari iOS HTTPS)
+    if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({
           title: `Struk ${transaction.invoiceNumber}`,
-          text: plainText,
+          text: plainReceiptText,
         });
+        setBtStatusType('success');
+        setBtStatusMsg('✅ Struk berhasil dibagikan!');
+        return;
       } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          await navigator.clipboard.writeText(plainText);
-          setIsCopied(true);
-          setTimeout(() => setIsCopied(false), 2000);
-        }
+        if (err.name === 'AbortError') return;
       }
-    } else {
-      await navigator.clipboard.writeText(plainText);
+    }
+
+    // 2. Salin langsung ke clipboard dengan universal fallback (bekerja di iOS Safari HTTP LAN)
+    const success = await copyTextToClipboard(plainReceiptText);
+    setShowRawText(true);
+    if (success) {
       setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
+      setBtStatusType('success');
+      setBtStatusMsg('✅ Teks struk berhasil disalin! Silakan buka aplikasi Thermer -> Paste (Tempel) -> Cetak.');
+      setTimeout(() => setIsCopied(false), 3000);
+    } else {
+      setBtStatusType('success');
+      setBtStatusMsg('📋 Teks struk siap disalin di bawah. Tekan tombol "Salin Semua".');
+    }
+  };
+
+  const handleCopyOnly = async () => {
+    const success = await copyTextToClipboard(plainReceiptText);
+    if (success) {
+      setIsCopied(true);
+      setBtStatusType('success');
+      setBtStatusMsg('✅ Teks struk berhasil disalin ke clipboard!');
+      setTimeout(() => setIsCopied(false), 3000);
+    }
+  };
+
+  const handleDownloadTxt = () => {
+    try {
+      const blob = new Blob([plainReceiptText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `struk-${transaction.invoiceNumber}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBtStatusType('success');
+      setBtStatusMsg('✅ File struk (.txt) berhasil diunduh!');
+    } catch (e: any) {
+      console.error('Download gagal:', e);
     }
   };
 
@@ -215,7 +269,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Struk Content (Format Standar Thermal 58mm) */}
-        <div className="receipt-scroll-container p-4 sm:p-5 overflow-y-auto flex-1 flex justify-center bg-stone-100 dark:bg-stone-950/40">
+        <div className="receipt-scroll-container p-4 sm:p-5 overflow-y-auto flex-1 flex flex-col items-center bg-stone-100 dark:bg-stone-950/40 space-y-4">
           <div
             id="printable-receipt"
             className="w-full max-w-[310px] bg-white dark:bg-stone-950 p-4 rounded-xl border border-dashed border-stone-400 dark:border-stone-700 font-sans text-xs text-stone-950 dark:text-stone-50 shadow-sm space-y-2.5"
@@ -347,6 +401,64 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               <p>Simpan struk ini sebagai bukti pembayaran.</p>
             </div>
           </div>
+
+          {/* Kotak Teks Struk untuk Thermer (Layar Only) */}
+          {showRawText && (
+            <div className="no-print w-full max-w-[310px] bg-white dark:bg-stone-900 border border-blue-200 dark:border-blue-900/50 rounded-2xl p-3.5 shadow-sm space-y-2.5 text-stone-900 dark:text-stone-100">
+              <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-2">
+                <div className="flex items-center gap-1.5 font-bold text-xs text-blue-700 dark:text-blue-400">
+                  <FileText className="w-4 h-4" />
+                  <span>Format Teks (Thermer)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRawText(false)}
+                  className="text-[11px] font-medium text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer"
+                >
+                  Sembunyikan
+                </button>
+              </div>
+
+              <textarea
+                readOnly
+                rows={7}
+                value={plainReceiptText}
+                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                className="w-full text-[11px] font-mono p-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 text-stone-800 dark:text-stone-200 focus:outline-none focus:ring-1 focus:ring-blue-500 select-all"
+                title="Klik untuk memilih semua teks"
+              />
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyOnly}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm active:scale-98 transition cursor-pointer"
+                >
+                  {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{isCopied ? 'Tersalin!' : 'Salin Semua'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadTxt}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-bold text-xs active:scale-98 transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh .txt</span>
+                </button>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/40 text-[10.5px] text-blue-900 dark:text-blue-300 space-y-1">
+                <p className="font-bold">📱 Cara Cetak di Thermer (iPhone):</p>
+                <ol className="list-decimal list-inside space-y-0.5 pl-0.5 leading-relaxed">
+                  <li>Teks struk otomatis disalin ke clipboard.</li>
+                  <li>Buka aplikasi <strong>Thermer</strong> di iPhone Anda.</li>
+                  <li>Pilih menu <strong>Text</strong> / <strong>Print Text</strong>.</li>
+                  <li><strong>Tempel (Paste)</strong> teks, lalu tekan <strong>Print</strong>!</li>
+                </ol>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Tombol Aksi (Layar Only) */}
@@ -378,7 +490,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               type="button"
               onClick={handleShareOrCopy}
               className="flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-stone-900 dark:bg-white text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-100 font-black text-xs sm:text-sm shadow-md active:scale-98 transition cursor-pointer"
-              title="Bagikan atau salin teks struk ke aplikasi printer Bluetooth iOS"
+              title="Salin teks struk untuk dicetak lewat aplikasi Thermer"
             >
               {isCopied ? (
                 <>
@@ -387,8 +499,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 </>
               ) : (
                 <>
-                  <Share2 className="w-4 h-4 text-blue-400 dark:text-blue-600" />
-                  <span>Bagikan Struk</span>
+                  <Copy className="w-4 h-4 text-blue-400 dark:text-blue-600" />
+                  <span>Salin Struk (Thermer)</span>
                 </>
               )}
             </button>
@@ -420,7 +532,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </div>
 
           <p className="text-[10.5px] text-center text-stone-500 dark:text-stone-400 leading-tight">
-            💡 Di Safari iPhone: Tekan <strong>Bagikan Struk</strong> untuk mengirim struk langsung ke aplikasi printer Bluetooth, atau tekan <strong>Cetak (AirPrint)</strong>.
+            💡 Di iPhone: Tekan <strong>Salin Struk (Thermer)</strong> lalu tempel di aplikasi Thermer untuk mencetak ke Woya WP58D, atau gunakan <strong>Cetak (AirPrint)</strong>.
           </p>
         </div>
       </div>

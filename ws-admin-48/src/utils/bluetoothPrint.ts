@@ -355,3 +355,71 @@ export function generateReceiptPlainText(
 
   return lines.filter(Boolean).join('\n');
 }
+
+/**
+ * Salin teks ke clipboard yang bekerja secara universal di iOS Safari, Android, dan Desktop,
+ * bahkan pada konteks non-HTTPS (HTTP LAN).
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  // 1. Coba Clipboard API modern jika tersedia dan berada dalam Secure Context
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === 'function' &&
+    typeof window !== 'undefined' &&
+    window.isSecureContext
+  ) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      console.warn('Clipboard API gagal, beralih ke fallback execCommand:', e);
+    }
+  }
+
+  // 2. Fallback universal untuk iOS Safari & HTTP LAN
+  if (typeof document === 'undefined') return false;
+
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    // Hindari scroll dan zoom otomatis di iOS Safari
+    textArea.style.position = 'fixed';
+    textArea.style.top = '0';
+    textArea.style.left = '0';
+    textArea.style.width = '2em';
+    textArea.style.height = '2em';
+    textArea.style.padding = '0';
+    textArea.style.border = 'none';
+    textArea.style.outline = 'none';
+    textArea.style.boxShadow = 'none';
+    textArea.style.background = 'transparent';
+    textArea.style.fontSize = '16px';
+    textArea.setAttribute('readonly', '');
+
+    document.body.appendChild(textArea);
+
+    const isIos = /ipad|iphone|ipod/i.test(navigator.userAgent);
+    if (isIos) {
+      textArea.contentEditable = 'true';
+      textArea.readOnly = false;
+      const range = document.createRange();
+      range.selectNodeContents(textArea);
+      const selection = window.getSelection();
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      textArea.setSelectionRange(0, 999999);
+    } else {
+      textArea.select();
+    }
+
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    return successful;
+  } catch (err) {
+    console.error('Fallback copyTextToClipboard gagal:', err);
+    return false;
+  }
+}
