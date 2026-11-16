@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Transaction, StoreSettings, OrderItem } from '../types';
 import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
-import { Printer, X, CheckCircle2, Info } from 'lucide-react';
+import { printDirectBluetooth } from '../utils/bluetoothPrint';
+import { Printer, X, CheckCircle2, Info, Bluetooth, Loader2 } from 'lucide-react';
 
 interface ReceiptModalProps {
   transaction: Transaction | null;
@@ -17,10 +18,34 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   onClose,
   title = 'Struk Pembayaran Kasir',
 }) => {
+  const [isPrintingBt, setIsPrintingBt] = useState(false);
+  const [btStatusMsg, setBtStatusMsg] = useState<string | null>(null);
+  const [btStatusType, setBtStatusType] = useState<'success' | 'error'>('success');
+
   if (!transaction) return null;
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleBluetoothPrint = async () => {
+    setIsPrintingBt(true);
+    setBtStatusMsg(null);
+    try {
+      const res = await printDirectBluetooth(transaction, settings);
+      if (res.success) {
+        setBtStatusType('success');
+        setBtStatusMsg('✅ Struk berhasil dikirim ke printer Bluetooth Woya WP58D!');
+      } else {
+        setBtStatusType('error');
+        setBtStatusMsg(res.error || 'Gagal mencetak via Bluetooth.');
+      }
+    } catch (e: any) {
+      setBtStatusType('error');
+      setBtStatusMsg(e.message || 'Terjadi kesalahan koneksi Bluetooth.');
+    } finally {
+      setIsPrintingBt(false);
+    }
   };
 
   // Helper Parser: Ekstrak detail pesanan (Makan di mana, Kuah, Pedas, Catatan)
@@ -302,22 +327,57 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Tombol Aksi (Layar Only) */}
-        <div className="no-print p-4 bg-stone-50 dark:bg-stone-950/60 border-t border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row gap-2.5">
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Cetak Struk Thermal (58mm)</span>
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="py-3 px-5 rounded-2xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 font-bold text-xs sm:text-sm transition cursor-pointer"
-          >
-            Tutup
-          </button>
+        <div className="no-print p-4 bg-stone-50 dark:bg-stone-950/60 border-t border-stone-200 dark:border-stone-800 flex flex-col gap-2.5">
+          {btStatusMsg && (
+            <div
+              className={`p-2.5 rounded-xl text-xs font-semibold ${
+                btStatusType === 'error'
+                  ? 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/50'
+                  : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
+              }`}
+            >
+              {btStatusMsg}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer"
+              title="Cetak lewat dialog browser / AirPrint"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Cetak (AirPrint / PC)</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isPrintingBt}
+              onClick={handleBluetoothPrint}
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-stone-900 dark:bg-white text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-100 font-black text-xs sm:text-sm shadow-md active:scale-98 transition cursor-pointer disabled:opacity-50"
+              title="Cetak langsung via Bluetooth (iOS Bluefy / Chrome)"
+            >
+              {isPrintingBt ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Bluetooth className="w-4 h-4 text-blue-400 dark:text-blue-600" />
+              )}
+              <span>Cetak via Bluetooth (iOS)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="py-3 px-4 rounded-2xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 font-bold text-xs sm:text-sm transition cursor-pointer"
+            >
+              Tutup
+            </button>
+          </div>
+
+          <p className="text-[10.5px] text-center text-stone-500 dark:text-stone-400 leading-tight">
+            💡 Di iPhone: Gunakan <strong>Cetak (AirPrint)</strong> jika lewat dialog standar, atau buka via browser <strong>Bluefy</strong> di App Store untuk cetak langsung via Bluetooth BLE.
+          </p>
         </div>
       </div>
     </div>,
