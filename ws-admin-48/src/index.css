@@ -21,8 +21,22 @@ body.text-scale-xlarge {
   font-size: 19px;
 }
 
-/* Print receipt styling */
+/* Print receipt styling (Thermal 58mm - Woya WP58D & ESC/POS) */
 @media print {
+  @page {
+    size: 58mm auto;
+    margin: 0;
+  }
+  html, body {
+    width: 58mm !important;
+    max-width: 58mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   body * {
     visibility: hidden;
   }
@@ -33,10 +47,18 @@ body.text-scale-xlarge {
     position: absolute;
     left: 0;
     top: 0;
-    width: 80mm;
-    margin: 0 auto;
-    padding: 10px;
-    background: white !important;
-    color: black !important;
+    width: 58mm !important;
+    max-width: 58mm !important;
+    box-sizing: border-box;
+    margin: 0 !important;
+    padding: 2mm 3mm 8mm 3mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
 }

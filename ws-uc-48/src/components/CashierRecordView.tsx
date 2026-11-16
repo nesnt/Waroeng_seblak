@@ -26,6 +26,7 @@ import {
   ListChecks,
   FileEdit,
   LogOut,
+  Printer,
 } from 'lucide-react';
 import {
   Ingredient,
@@ -35,9 +36,11 @@ import {
   OrderItem,
   BowlOrder,
   SelectedTopping,
+  Transaction,
 } from '../types';
 import { formatRupiah } from '../utils/formatters';
 import { IngredientImage } from './IngredientIllustration';
+import { ReceiptModal } from './ReceiptModal';
 import {
   createTransaction,
   getBowlOrders,
@@ -257,6 +260,8 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
   // Konfirmasi
   const [isEditingReceipt, setIsEditingReceipt] = useState<boolean>(false);
   const [createdInvoice, setCreatedInvoice] = useState<string>('');
+  const [lastCreatedTransaction, setLastCreatedTransaction] = useState<Transaction | null>(null);
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
   useEffect(() => {
@@ -564,12 +569,15 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
       refreshBowlOrders();
     }
 
+    setLastCreatedTransaction(newTx);
     setCreatedInvoice(newTx.invoiceNumber);
     onOrderCreated();
     setStep('completed');
   };
 
   const handleResetToStart = () => {
+    setLastCreatedTransaction(null);
+    setIsReceiptModalOpen(false);
     setBowlNumber('');
     setCustomerName('');
     setDineType('Makan di Sini');
@@ -2043,11 +2051,19 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsReceiptModalOpen(true)}
+                  className="w-full sm:w-auto py-3.5 px-6 rounded-2xl bg-stone-900 dark:bg-white text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-100 font-black text-xs sm:text-sm shadow-lg flex items-center justify-center gap-2 transition cursor-pointer active:scale-98"
+                >
+                  <Printer className="w-4 h-4 text-orange-400 dark:text-orange-600" />
+                  <span>Cetak Struk Thermal (58mm)</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleResetToStart}
-                  className="w-full sm:w-auto py-3.5 px-8 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer"
+                  className="w-full sm:w-auto py-3.5 px-6 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer active:scale-98"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>Catat Mangkuk Berikutnya</span>
@@ -2237,6 +2253,16 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal Cetak Struk Kasir (Format Thermal 58mm) */}
+      {isReceiptModalOpen && lastCreatedTransaction && (
+        <ReceiptModal
+          transaction={lastCreatedTransaction}
+          settings={settings}
+          title="Struk Transaksi Kasir"
+          onClose={() => setIsReceiptModalOpen(false)}
+        />
+      )}
     </div>
   );
 };
