@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Transaction, StoreSettings, OrderItem } from '../types';
 import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
-import { Printer, X, CheckCircle2, Info } from 'lucide-react';
+import { printViaLaptopPrinter } from '../utils/laptopPrint';
+import { Printer, X, CheckCircle2, Info, Loader2, Check } from 'lucide-react';
 
 interface ReceiptModalProps {
   transaction: Transaction | null;
   settings: StoreSettings;
   onClose: () => void;
   title?: string;
+  autoPrint?: boolean;
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({
@@ -16,10 +18,50 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   settings,
   onClose,
   title = 'Struk Pembayaran Kasir',
+  autoPrint = true,
 }) => {
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printStatus, setPrintStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const hasAutoPrinted = useRef(false);
+
+  // Otomatis cetak begitu modal struk terbuka (Auto-Print ke Laptop Kasir)
+  useEffect(() => {
+    if (!transaction || hasAutoPrinted.current || !autoPrint) return;
+    hasAutoPrinted.current = true;
+    handleLaptopPrint(true);
+  }, [transaction, autoPrint]);
+
   if (!transaction) return null;
 
-  const handlePrint = () => {
+  const handleLaptopPrint = async (isAuto = false) => {
+    setIsPrinting(true);
+    setPrintStatus(null);
+    try {
+      const res = await printViaLaptopPrinter(transaction, settings);
+      if (res.success) {
+        setPrintStatus({
+          type: 'success',
+          message: isAuto
+            ? '✅ Struk otomatis dicetak di printer kasir (POS58)!'
+            : '✅ Struk berhasil dicetak di printer kasir (POS58)!',
+        });
+      } else {
+        setPrintStatus({
+          type: 'error',
+          message: res.error || 'Gagal mengirim perintah cetak ke laptop kasir.',
+        });
+      }
+    } catch (err: any) {
+      setPrintStatus({
+        type: 'error',
+        message: err.message || 'Koneksi ke server kasir terputus.',
+      });
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const handleBrowserPrint = () => {
     window.print();
   };
 
@@ -302,22 +344,58 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Tombol Aksi (Layar Only) */}
-        <div className="no-print p-4 bg-stone-50 dark:bg-stone-950/60 border-t border-stone-200 dark:border-stone-800 flex flex-col sm:flex-row gap-2.5">
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Cetak Struk Thermal (58mm)</span>
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="py-3 px-5 rounded-2xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 font-bold text-xs sm:text-sm transition cursor-pointer"
-          >
-            Tutup
-          </button>
+        <div className="no-print p-4 bg-stone-50 dark:bg-stone-950/60 border-t border-stone-200 dark:border-stone-800 flex flex-col gap-2.5">
+          {printStatus && (
+            <div
+              className={`p-2.5 rounded-xl text-xs font-semibold ${
+                printStatus.type === 'error'
+                  ? 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/50'
+                  : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
+              }`}
+            >
+              {printStatus.message}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={isPrinting}
+              onClick={() => handleLaptopPrint(false)}
+              className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer disabled:opacity-50"
+              title="Kirim ulang struk ke printer thermal kasir"
+            >
+              {isPrinting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Printer className="w-4 h-4" />
+              )}
+              <span>{isPrinting ? 'Mencetak...' : 'Cetak Ulang (Printer Kasir)'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleBrowserPrint}
+              className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 hover:bg-stone-300 dark:hover:bg-stone-700 font-bold text-xs sm:text-sm active:scale-98 transition cursor-pointer"
+              title="Cetak lewat dialog browser standar / AirPrint"
+            >
+              <span>Dialog Print (AirPrint)</span>
+            </button>
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full sm:w-auto py-2.5 px-6 rounded-2xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 font-bold text-xs transition cursor-pointer"
+            >
+              Tutup
+            </button>
+          </div>
+
+          <p className="text-[10.5px] text-center text-stone-500 dark:text-stone-400 leading-tight">
+            ⚡ <strong>Cetak Otomatis Aktif</strong>: Begitu transaksi selesai, struk langsung keluar dari printer kasir di laptop.
+          </p>
         </div>
       </div>
     </div>,

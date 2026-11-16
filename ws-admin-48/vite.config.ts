@@ -1,11 +1,65 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import fs from 'fs';
+import os from 'os';
+import { execFile } from 'child_process';
+import { defineConfig, Plugin } from 'vite';
+
+function thermalPrintApiPlugin(): Plugin {
+  const handlePrintRequest = (req: any, res: any) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: any) => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body);
+          const tempFile = path.join(os.tmpdir(), `receipt_${Date.now()}_${Math.random().toString(36).substring(7)}.json`);
+          fs.writeFileSync(tempFile, JSON.stringify(payload), 'utf8');
+
+          const scriptPath = path.resolve(__dirname, 'scripts', 'print_receipt.ps1');
+          execFile('powershell', ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-JsonPath', tempFile], (error, stdout, stderr) => {
+            try { fs.unlinkSync(tempFile); } catch (_) {}
+            
+            res.setHeader('Content-Type', 'application/json');
+            if (error) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: stderr || error.message }));
+              return;
+            }
+            try {
+              const result = JSON.parse(stdout.trim());
+              res.end(JSON.stringify(result));
+            } catch {
+              res.end(JSON.stringify({ success: true, raw: stdout }));
+            }
+          });
+        } catch (err: any) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      });
+    } else {
+      res.statusCode = 405;
+      res.end('Method Not Allowed');
+    }
+  };
+
+  return {
+    name: 'thermal-print-api',
+    configureServer(server) {
+      server.middlewares.use('/api/print-thermal', handlePrintRequest);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use('/api/print-thermal', handlePrintRequest);
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), thermalPrintApiPlugin()],
     envPrefix: ['VITE_', 'SUPABASE_', 'NEXT_PUBLIC_', 'ANON_'],
     resolve: {
       alias: {
@@ -13,11 +67,18 @@ export default defineConfig(() => {
       },
     },
     server: {
+      host: '0.0.0.0',
+      allowedHosts: true,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    preview: {
+      port: 3001,
+      host: '0.0.0.0',
+      allowedHosts: true,
     },
   };
 });
