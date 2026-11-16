@@ -187,14 +187,20 @@ export async function printDirectBluetooth(
   try {
     const rawData = generateEscPosBytes(transaction, settings);
 
+    const knownServices = [
+      '0000ffe0-0000-1000-8000-00805f9b34fb',
+      '000018f0-0000-1000-8000-00805f9b34fb',
+      '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+      'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+      '0000ff00-0000-1000-8000-00805f9b34fb',
+      '0000ae30-0000-1000-8000-00805f9b34fb',
+      '0000af30-0000-1000-8000-00805f9b34fb',
+      '00001101-0000-1000-8000-00805f9b34fb',
+    ];
+
     const device = await nav.bluetooth.requestDevice({
       acceptAllDevices: true,
-      optionalServices: [
-        '000018f0-0000-1000-8000-00805f9b34fb',
-        '0000ffe0-0000-1000-8000-00805f9b34fb',
-        '49535343-fe7d-4ae5-8fa9-9fafd205e455',
-        'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
-      ],
+      optionalServices: knownServices,
     });
 
     if (!device.gatt) throw new Error('Perangkat Bluetooth tidak memiliki GATT server.');
@@ -202,20 +208,40 @@ export async function printDirectBluetooth(
     const server = await device.gatt.connect();
 
     // Dapatkan service printer
-    const services = await server.getPrimaryServices();
     let writeChar: any = null;
 
-    for (const service of services) {
-      try {
-        const characteristics = await service.getCharacteristics();
-        for (const char of characteristics) {
-          if (char.properties.write || char.properties.writeWithoutResponse) {
-            writeChar = char;
-            break;
+    try {
+      const services = await server.getPrimaryServices();
+      for (const service of services) {
+        try {
+          const characteristics = await service.getCharacteristics();
+          for (const char of characteristics) {
+            if (char.properties.write || char.properties.writeWithoutResponse) {
+              writeChar = char;
+              break;
+            }
           }
-        }
-      } catch (_) {}
-      if (writeChar) break;
+        } catch (_) {}
+        if (writeChar) break;
+      }
+    } catch (_) {
+      // Fallback jika getPrimaryServices() tanpa filter ditolak
+    }
+
+    if (!writeChar) {
+      for (const sUuid of knownServices) {
+        try {
+          const service = await server.getPrimaryService(sUuid);
+          const characteristics = await service.getCharacteristics();
+          for (const char of characteristics) {
+            if (char.properties.write || char.properties.writeWithoutResponse) {
+              writeChar = char;
+              break;
+            }
+          }
+          if (writeChar) break;
+        } catch (_) {}
+      }
     }
 
     if (!writeChar) {
