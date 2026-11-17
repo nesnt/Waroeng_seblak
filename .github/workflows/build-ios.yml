@@ -20,13 +20,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode Active Directory
+      - name: Verify Xcode Toolchain
         run: |
-          echo "Default xcode-select:"
+          echo "Active Xcode developer directory:"
           xcode-select -p
-          if [ -d "/Applications/Xcode.app" ]; then
-            sudo xcode-select -s /Applications/Xcode.app
-          fi
           xcodebuild -version
 
       - name: Setup Node.js
@@ -46,10 +43,11 @@ jobs:
           cd ws-ios-48
           npm run build
 
-      - name: Capacitor Sync iOS
+      - name: Capacitor Copy & Sync iOS Assets
         run: |
           cd ws-ios-48
-          npx cap sync ios --verbose
+          npx cap copy ios
+          npx cap update ios || true
 
       - name: Build iOS Binary (.app)
         run: |
@@ -63,13 +61,19 @@ jobs:
             -derivedDataPath ./build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation
 
       - name: Package App (.ipa)
         run: |
           cd ws-ios-48/ios/App
           APP_PATH=$(find ./build/DerivedData -name "App.app" -type d | head -n 1)
           echo "Found App bundle at: $APP_PATH"
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: App.app not found!"
+            exit 1
+          fi
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -qr ../../WaroengSeblak48.ipa Payload/
