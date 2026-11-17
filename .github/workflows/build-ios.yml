@@ -7,16 +7,27 @@ on:
       - 'ws-ios-48/**'
       - '.github/workflows/build-ios.yml'
 
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-ios:
     name: Build iOS App
-    runs-on: macos-latest
+    runs-on: macos-15
+    timeout-minutes: 25
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Select Xcode Active Directory
-        run: sudo xcode-select -s /Applications/Xcode.app
+        run: |
+          echo "Default xcode-select:"
+          xcode-select -p
+          if [ -d "/Applications/Xcode.app" ]; then
+            sudo xcode-select -s /Applications/Xcode.app
+          fi
+          xcodebuild -version
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,30 +51,29 @@ jobs:
           cd ws-ios-48
           npx cap sync ios --verbose
 
-      - name: Resolve SPM Dependencies
+      - name: Build iOS Binary (.app)
         run: |
           cd ws-ios-48/ios/App
-          xcodebuild -resolvePackageDependencies -project App.xcodeproj -scheme App
-
-      - name: Build iOS Archive with Xcode
-        run: |
-          cd ws-ios-48/ios/App
-          xcodebuild archive \
+          xcodebuild build \
             -project App.xcodeproj \
             -scheme App \
             -configuration Release \
+            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath ./build/App.xcarchive \
+            -derivedDataPath ./build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
       - name: Package App (.ipa)
         run: |
-          cd ws-ios-48/ios/App/build/App.xcarchive/Products/Applications
+          cd ws-ios-48/ios/App
+          APP_PATH=$(find ./build/DerivedData -name "App.app" -type d | head -n 1)
+          echo "Found App bundle at: $APP_PATH"
           mkdir -p Payload
-          cp -r App.app Payload/
-          zip -r ../../../../../WaroengSeblak48.ipa Payload/
+          cp -r "$APP_PATH" Payload/
+          zip -qr ../../WaroengSeblak48.ipa Payload/
+          ls -lh ../../WaroengSeblak48.ipa
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
