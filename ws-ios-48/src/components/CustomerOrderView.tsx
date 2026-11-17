@@ -23,6 +23,7 @@ import {
   ChevronsDown,
   Search,
   X,
+  LogIn,
 } from 'lucide-react';
 import { Ingredient, MenuItem, StoreSettings, OrderItem, BowlOrderDrink } from '../types';
 import { formatRupiah } from '../utils/formatters';
@@ -466,6 +467,18 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {onBackToLogin && (
+              <button
+                type="button"
+                onClick={onBackToLogin}
+                className="px-3 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                title="Buka Portal Kasir"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Portal Kasir</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onToggleTheme}

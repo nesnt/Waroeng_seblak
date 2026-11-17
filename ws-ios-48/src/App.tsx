@@ -25,8 +25,15 @@ import { CashierRecordView } from './components/CashierRecordView';
 import { LoginView } from './components/LoginView';
 
 export default function App() {
-  // Routing: URL Path State (Default root '/' adalah Layanan Pemesanan Mandiri Pelanggan)
-  const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname || '/');
+  // Routing: URL Path State (Khusus iOS native app, default ke '/kasir')
+  const [currentPath, setCurrentPath] = useState<string>(() => {
+    const saved = localStorage.getItem('seblak48_ios_route');
+    if (saved) return saved;
+    if (window.location.pathname && window.location.pathname.startsWith('/kasir')) {
+      return window.location.pathname;
+    }
+    return '/kasir';
+  });
 
   // Sesi Login Kasir (tersimpan di sessionStorage perangkat)
   const [isCashierLoggedIn, setIsCashierLoggedIn] = useState<boolean>(() => {
@@ -40,7 +47,7 @@ export default function App() {
   // Listen perubahan URL dari tombol Back/Forward browser
   useEffect(() => {
     const handlePopState = () => {
-      setCurrentPath(window.location.pathname || '/');
+      setCurrentPath(window.location.pathname || '/kasir');
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -48,8 +55,11 @@ export default function App() {
 
   // Helper navigasi URL tanpa reload halaman
   const navigateTo = (path: string) => {
+    localStorage.setItem('seblak48_ios_route', path);
     if (window.location.pathname !== path) {
-      window.history.pushState({}, '', path);
+      try {
+        window.history.pushState({}, '', path);
+      } catch (_) {}
     }
     setCurrentPath(path);
   };
@@ -144,6 +154,7 @@ export default function App() {
       ingredients={ingredients}
       menuItems={menuItems}
       onToggleTheme={handleToggleTheme}
+      onBackToLogin={() => navigateTo('/kasir')}
       onOrderCreated={refreshData}
     />
   );
