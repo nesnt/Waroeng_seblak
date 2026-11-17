@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Transaction, StoreSettings, OrderItem } from '../types';
 import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
-import { printViaCapacitorBluetooth } from '../utils/capacitorBluetoothPrint';
+import { printViaCapacitorBluetooth, resetPrinterBluetooth } from '../utils/capacitorBluetoothPrint';
 import { printViaLaptopPrinter } from '../utils/laptopPrint';
 import { Capacitor } from '@capacitor/core';
 import { Printer, X, CheckCircle2, Info, Loader2, Check, Bluetooth } from 'lucide-react';
@@ -368,13 +368,25 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         <div className="no-print p-4 bg-stone-50 dark:bg-stone-950/60 border-t border-stone-200 dark:border-stone-800 flex flex-col gap-2.5">
           {printStatus && (
             <div
-              className={`p-2.5 rounded-xl text-xs font-semibold ${
+              className={`p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 ${
                 printStatus.type === 'error'
                   ? 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/50'
                   : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
               }`}
             >
-              {printStatus.message}
+              <span>{printStatus.message}</span>
+              {printStatus.type === 'error' && Capacitor.isNativePlatform() && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await resetPrinterBluetooth();
+                    handlePrintThermal(false);
+                  }}
+                  className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold shrink-0 cursor-pointer shadow-xs"
+                >
+                  Pilih Ulang Printer
+                </button>
+              )}
             </div>
           )}
 

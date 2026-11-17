@@ -23,6 +23,56 @@ const KNOWN_CHARS = [
 
 let lastConnectedDeviceId: string | null = null;
 
+export async function resetPrinterBluetooth(): Promise<void> {
+  if (lastConnectedDeviceId) {
+    try {
+      await BleClient.disconnect(lastConnectedDeviceId);
+    } catch (_) {}
+  }
+  lastConnectedDeviceId = null;
+}
+
+/**
+ * Temukan Service dan Characteristic yang valid dari GATT table
+ */
+async function discoverPrinterGatt(deviceId: string): Promise<{
+  service: string;
+  char: string;
+  useWithoutResponse: boolean;
+}> {
+  // Panggil getServices untuk menginisialisasi GATT cache di Apple CoreBluetooth
+  const services = await BleClient.getServices(deviceId);
+
+  let targetService = '';
+  let targetChar = '';
+  let useWithoutResponse = true;
+
+  for (const s of services) {
+    for (const c of s.characteristics) {
+      if (c.properties.writeWithoutResponse) {
+        targetService = s.uuid;
+        targetChar = c.uuid;
+        useWithoutResponse = true;
+        break;
+      } else if (c.properties.write) {
+        targetService = s.uuid;
+        targetChar = c.uuid;
+        useWithoutResponse = false;
+        break;
+      }
+    }
+    if (targetService) break;
+  }
+
+  // Fallback standar thermal POS-58
+  if (!targetService || !targetChar) {
+    targetService = '0000ffe0-0000-1000-8000-00805f9b34fb';
+    targetChar = '0000ffe1-0000-1000-8000-00805f9b34fb';
+  }
+
+  return { service: targetService, char: targetChar, useWithoutResponse };
+}
+
 /**
  * Rakit byte ESC/POS struk thermal 58mm
  */
@@ -192,66 +242,74 @@ export async function printViaCapacitorBluetooth(
     // 1. Inisialisasi Bluetooth
     await BleClient.initialize();
 
-    // 2. Pilih / Hubungkan ke printer
     let deviceId = lastConnectedDeviceId;
+    let targetService = '';
+    let targetChar = '';
+    let useWithoutResponse = true;
 
+    // 2. Coba reconnect ke printer sebelumnya jika ada
+    if (deviceId) {
+      try {
+        await BleClient.connect(deviceId);
+        const gatt = await discoverPrinterGatt(deviceId);
+        targetService = gatt.service;
+        targetChar = gatt.char;
+        useWithoutResponse = gatt.useWithoutResponse;
+      } catch (reconnectErr) {
+        console.warn('[BLE] Re-connect gagal, meminta scan ulang:', reconnectErr);
+        try {
+          await BleClient.disconnect(deviceId);
+        } catch (_) {}
+        deviceId = null;
+        lastConnectedDeviceId = null;
+      }
+    }
+
+    // 3. Jika belum terhubung, minta user pilih perangkat
     if (!deviceId) {
       const device = await BleClient.requestDevice({
         optionalServices: KNOWN_SERVICES,
       });
       deviceId = device.deviceId;
       lastConnectedDeviceId = deviceId;
+
+      await BleClient.connect(deviceId);
+      const gatt = await discoverPrinterGatt(deviceId);
+      targetService = gatt.service;
+      targetChar = gatt.char;
+      useWithoutResponse = gatt.useWithoutResponse;
     }
 
-    // 3. Connect ke printer
-    await BleClient.connect(deviceId);
-
-    // 4. Cari service dan characteristic write yang cocok
+    // 4. Rakit ESC/POS
     const rawBytes = generateEscPosBytes(transaction, settings);
 
-    let targetService = '';
-    let targetChar = '';
-
-    for (const s of KNOWN_SERVICES) {
-      for (const c of KNOWN_CHARS) {
-        try {
-          const testChunk = numbersToDataView([0x1B, 0x40]);
-          await BleClient.writeWithoutResponse(deviceId, s, c, testChunk);
-          targetService = s;
-          targetChar = c;
-          break;
-        } catch (_) {}
-      }
-      if (targetService) break;
-    }
-
-    if (!targetService || !targetChar) {
-      targetService = '0000ffe0-0000-1000-8000-00805f9b34fb';
-      targetChar = '0000ffe1-0000-1000-8000-00805f9b34fb';
-    }
-
-    // 5. Kirim data per chunk 100 bytes
-    const chunkSize = 100;
+    // 5. Kirim data per chunk 80 bytes
+    const chunkSize = 80;
     for (let i = 0; i < rawBytes.length; i += chunkSize) {
       const chunk = rawBytes.slice(i, i + chunkSize);
       const dataView = numbersToDataView(chunk);
-      try {
-        await BleClient.writeWithoutResponse(deviceId, targetService, targetChar, dataView);
-      } catch {
+      if (useWithoutResponse) {
+        try {
+          await BleClient.writeWithoutResponse(deviceId, targetService, targetChar, dataView);
+        } catch (_) {
+          await BleClient.write(deviceId, targetService, targetChar, dataView);
+        }
+      } else {
         await BleClient.write(deviceId, targetService, targetChar, dataView);
       }
-      await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 20));
     }
 
-    // Beri jeda lalu disconnect
-    setTimeout(async () => {
-      try {
-        if (deviceId) await BleClient.disconnect(deviceId);
-      } catch (_) {}
-    }, 500);
+    // 6. Beri jeda 400ms agar buffer printer selesai mencetak, lalu disconnect bersih
+    await new Promise((r) => setTimeout(r, 400));
+    try {
+      await BleClient.disconnect(deviceId);
+    } catch (_) {}
 
     return { success: true };
   } catch (err: any) {
+    // Reset cache jika terjadi error agar transaksi berikutnya selalu mulai dari kondisi bersih
+    lastConnectedDeviceId = null;
     return {
       success: false,
       error: `Koneksi Bluetooth gagal: ${err.message || err}`,
