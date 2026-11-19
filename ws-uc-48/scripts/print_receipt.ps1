@@ -185,11 +185,11 @@ try {
         $buffer.AddRange($b)
     }
 
-    # Initialize ESC/POS (Left align, Tulisan Sedikit Lebih Besar: Double Height & Bold)
+    # Initialize ESC/POS (Left align & Standard Normal Font Size)
     Add-Bytes @(0x1B, 0x40)       # Reset printer
     Add-Bytes @(0x1B, 0x61, 0x00) # Left align
-    Add-Bytes @(0x1D, 0x21, 0x01) # Double height (tulisan sedikit diperbesar)
-    Add-Bytes @(0x1B, 0x45, 0x01) # Bold ON
+    Add-Bytes @(0x1D, 0x21, 0x00) # Ukuran font normal standar
+    Add-Bytes @(0x1B, 0x45, 0x00) # Normal weight
 
     # 1. Info Pelanggan & Pesanan
     $cust = if ($tx.customerName) { $tx.customerName } else { "Pelanggan Umum" }

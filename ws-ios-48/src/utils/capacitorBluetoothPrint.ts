@@ -93,11 +93,11 @@ export function generateEscPosBytes(
     for (const b of encoded) bytes.push(b);
   };
 
-  // 1. Initialize ESC/POS (Left align, Tulisan Sedikit Lebih Besar: Double Height & Bold)
+  // 1. Initialize ESC/POS (Left align & Standard Normal Font Size)
   addBytes([0x1B, 0x40]); // Reset printer
   addBytes([0x1B, 0x61, 0x00]); // Left align
-  addBytes([0x1D, 0x21, 0x01]); // Double height (tulisan sedikit diperbesar)
-  addBytes([0x1B, 0x45, 0x01]); // Bold / Emphasized ON
+  addBytes([0x1D, 0x21, 0x00]); // Ukuran font normal standar
+  addBytes([0x1B, 0x45, 0x00]); // Normal weight
 
   // 2. Parser Detail Pesanan
   const combined = `${transaction.notes || ''} ${transaction.items

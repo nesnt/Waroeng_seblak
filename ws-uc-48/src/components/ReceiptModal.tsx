@@ -203,20 +203,20 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         {/* Info Petunjuk (Layar Only) */}
         <div className="no-print px-5 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
           <Info className="w-4 h-4 shrink-0" />
-          <span>Format struk minimalis dapur & kasir (tulisan lebih besar & total jelas).</span>
+          <span>Format struk minimalis dapur & kasir (total diperbesar).</span>
         </div>
 
         {/* Struk Content (Format Standar Thermal 58mm Minimalis) */}
         <div className="receipt-scroll-container p-4 sm:p-5 overflow-y-auto flex-1 flex justify-center bg-stone-100 dark:bg-stone-950/40">
           <div
             id="printable-receipt"
-            className="w-full max-w-[310px] bg-white dark:bg-stone-950 p-4 rounded-xl border border-dashed border-stone-400 dark:border-stone-700 font-sans text-sm text-stone-950 dark:text-stone-50 shadow-sm space-y-3"
+            className="w-full max-w-[310px] bg-white dark:bg-stone-950 p-4 rounded-xl border border-dashed border-stone-400 dark:border-stone-700 font-sans text-xs text-stone-950 dark:text-stone-50 shadow-sm space-y-2.5"
           >
             {/* 1. Detail Pelanggan & Pesanan */}
-            <div className="space-y-1.5 pb-2 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-sm font-bold">
+            <div className="space-y-1 pb-2 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-xs font-bold">
               <div className="flex justify-between">
                 <span>Pelanggan:</span>
-                <span className="text-right break-words max-w-[170px]">{transaction.customerName || 'Pelanggan Umum'}</span>
+                <span className="text-right break-words max-w-[180px]">{transaction.customerName || 'Pelanggan Umum'}</span>
               </div>
               <div className="flex justify-between">
                 <span>Makan di:</span>
@@ -232,12 +232,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               </div>
               <div className="flex justify-between">
                 <span>Catatan:</span>
-                <span className="text-right break-words max-w-[170px] italic">{customerNote || '-'}</span>
+                <span className="text-right break-words max-w-[180px] italic">{customerNote || '-'}</span>
               </div>
             </div>
 
             {/* 2. Daftar Topping */}
-            <div className="py-2 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-sm font-bold space-y-1">
+            <div className="py-1.5 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-xs font-bold space-y-1">
               <div>TOPPING:</div>
               {toppingsList.length > 0 ? (
                 <div className="space-y-0.5 pl-2">
@@ -253,7 +253,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </div>
 
             {/* 3. Daftar Minuman */}
-            <div className="py-2 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-sm font-bold space-y-1">
+            <div className="py-1.5 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-xs font-bold space-y-1">
               <div>MINUMAN:</div>
               {drinkItems.length > 0 ? (
                 <div className="space-y-0.5 pl-2">
@@ -269,7 +269,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </div>
 
             {/* 4. Total (Perbesar) */}
-            <div className="receipt-total-row pt-2 border-t border-dashed border-stone-800 dark:border-stone-300 print:border-black text-base sm:text-lg font-black flex justify-between items-center text-stone-950 dark:text-white print:text-black">
+            <div className="receipt-total-row pt-2 text-base sm:text-lg font-black flex justify-between items-center text-stone-950 dark:text-white print:text-black">
               <span>TOTAL:</span>
               <span className="text-lg sm:text-xl font-black">{formatRupiah(transaction.totalAmount)}</span>
             </div>
