@@ -8,6 +8,17 @@ import { defineConfig, Plugin } from 'vite';
 
 function thermalPrintApiPlugin(): Plugin {
   const handlePrintRequest = (req: any, res: any) => {
+    // Add CORS headers for mobile & cross-origin access
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+
     if (req.method === 'POST') {
       let body = '';
       req.on('data', (chunk: any) => { body += chunk; });
@@ -49,10 +60,24 @@ function thermalPrintApiPlugin(): Plugin {
   return {
     name: 'thermal-print-api',
     configureServer(server) {
-      server.middlewares.use('/api/print-thermal', handlePrintRequest);
+      server.middlewares.use((req: any, res: any, next: any) => {
+        const url = (req.url || '').split('?')[0];
+        if (url === '/api/print-thermal' || url === '/api/print-thermal/') {
+          handlePrintRequest(req, res);
+          return;
+        }
+        next();
+      });
     },
     configurePreviewServer(server) {
-      server.middlewares.use('/api/print-thermal', handlePrintRequest);
+      server.middlewares.use((req: any, res: any, next: any) => {
+        const url = (req.url || '').split('?')[0];
+        if (url === '/api/print-thermal' || url === '/api/print-thermal/') {
+          handlePrintRequest(req, res);
+          return;
+        }
+        next();
+      });
     },
   };
 }
