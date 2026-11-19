@@ -41,6 +41,7 @@ import {
 import { formatRupiah } from '../utils/formatters';
 import { IngredientImage } from './IngredientIllustration';
 import { ReceiptModal } from './ReceiptModal';
+import { isSupabaseConfigured } from '../lib/supabase';
 import {
   createTransaction,
   getBowlOrders,
@@ -639,9 +640,22 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
               <ClipboardCheck className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-base font-extrabold text-stone-900 dark:text-stone-100 truncate">
-                Catat Kasir · {settings.storeName}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm sm:text-base font-extrabold text-stone-900 dark:text-stone-100 truncate">
+                  Catat Kasir · {settings.storeName}
+                </h1>
+                {isSupabaseConfigured() ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    DB Cloud
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    Offline
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-stone-500 dark:text-stone-400 truncate">
                 Pencatatan Topping Mangkuk Pembeli
               </p>
