@@ -8,6 +8,24 @@
   }
 }
 
+/* ========================================================
+   Mencegah Auto-Zoom & Double-Tap Zoom pada iOS / Safari
+   ======================================================== */
+html, body {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Wajib min 16px pada input di iOS agar Safari/WebKit TIDAK otomatis zoom-in saat fokus */
+@supports (-webkit-touch-callout: none) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Dukungan Pengaturan Ukuran Teks untuk Pemilik Warung Segala Usia */
 body.text-scale-normal {
   font-size: 15px;
