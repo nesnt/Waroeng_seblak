@@ -195,11 +195,26 @@ try {
     $cust = if ($tx.customerName) { $tx.customerName } else { "Pelanggan Umum" }
     $cNote = if ($customerNote) { $customerNote } else { "-" }
 
-    Add-Text "Pelanggan : $cust`n"
-    Add-Text "Makan di  : $dineType`n"
-    Add-Text "Kuah      : $brothType`n"
-    Add-Text "Pedas     : $spicy`n"
-    Add-Text "Catatan   : $cNote`n"
+    # Parser Nomor Mangkuk
+    $bowlNum = "-"
+    if ($combined -match "mangkuk[:\s]*#?([a-zA-Z0-9_-]+)") {
+        $rawB = $matches[1].Trim()
+        $bowlNum = if ($rawB.StartsWith("#")) { $rawB } else { "#$rawB" }
+    } elseif ($cust -match "mangkuk[:\s]*#?([a-zA-Z0-9_-]+)") {
+        $rawB = $matches[1].Trim()
+        $bowlNum = if ($rawB.StartsWith("#")) { $rawB } else { "#$rawB" }
+    }
+
+    $cleanCust = $cust -replace "\s*\(\s*mangkuk[:\s]*#?[^)]+\)", ""
+    $cleanCust = $cleanCust.Trim()
+    if (-not $cleanCust) { $cleanCust = "Pelanggan Umum" }
+
+    Add-Text "No. Mangkuk : $bowlNum`n"
+    Add-Text "Pelanggan   : $cleanCust`n"
+    Add-Text "Makan di    : $dineType`n"
+    Add-Text "Kuah        : $brothType`n"
+    Add-Text "Pedas       : $spicy`n"
+    Add-Text "Catatan     : $cNote`n"
     Add-Text "--------------------------------`n"
 
     # 2. Topping
@@ -231,8 +246,8 @@ try {
     Add-Bytes @(0x1B, 0x45, 0x00) # Reset bold
     Add-Bytes @(0x1D, 0x21, 0x00) # Reset size
 
-    # Hemat kertas: berhenti langsung setelah TOTAL tanpa feed kosong
-    Add-Text "`n"
+    # Sedikit space di bawah (2 baris) agar pas di gerigi sobekan tanpa memotong teks TOTAL
+    Add-Text "`n`n"
 
     # 7. Kirim ke Printer
     $bytes = $buffer.ToArray()

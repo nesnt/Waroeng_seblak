@@ -135,12 +135,23 @@ export function generateEscPosBytes(
     customerNote = transaction.notes.trim();
   }
 
+  // Parser Nomor Mangkuk
+  const bowlMatch =
+    combined.match(/mangkuk[:\s]*#?([a-zA-Z0-9_-]+)/i) ||
+    (transaction.customerName && transaction.customerName.match(/mangkuk[:\s]*#?([a-zA-Z0-9_-]+)/i));
+  const bowlNumber = bowlMatch ? (bowlMatch[1].startsWith('#') ? bowlMatch[1] : `#${bowlMatch[1]}`) : '-';
+
+  const cleanCustomerName = (transaction.customerName || 'Pelanggan Umum')
+    .replace(/\s*\(\s*mangkuk[:\s]*#?[^)]+\)/i, '')
+    .trim() || 'Pelanggan Umum';
+
   // 3. Info Pelanggan & Mangkuk
-  addText(`Pelanggan : ${transaction.customerName || 'Pelanggan Umum'}\n`);
-  addText(`Makan di  : ${dineType}\n`);
-  addText(`Kuah      : ${brothType}\n`);
-  addText(`Pedas     : ${spicy}\n`);
-  addText(`Catatan   : ${customerNote}\n`);
+  addText(`No. Mangkuk : ${bowlNumber}\n`);
+  addText(`Pelanggan   : ${cleanCustomerName}\n`);
+  addText(`Makan di    : ${dineType}\n`);
+  addText(`Kuah        : ${brothType}\n`);
+  addText(`Pedas       : ${spicy}\n`);
+  addText(`Catatan     : ${customerNote}\n`);
   addText('--------------------------------\n');
 
   // 4. Pisahkan Topping & Minuman
@@ -198,8 +209,8 @@ export function generateEscPosBytes(
   addText(`TOTAL: ${formatRupiah(transaction.totalAmount)}\n`);
   addBytes([0x1B, 0x45, 0x00]); // Reset bold
   addBytes([0x1D, 0x21, 0x00]); // Reset size
-  // Hemat kertas: berhenti langsung setelah TOTAL tanpa feed kosong berlebih
-  addText('\n');
+  // Sedikit space di bawah (2 baris) agar pas di gerigi sobekan tanpa memotong teks TOTAL
+  addText('\n\n');
 
   return bytes;
 }

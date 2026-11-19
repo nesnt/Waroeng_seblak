@@ -139,6 +139,16 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     customerNote = transaction.notes.trim();
   }
 
+  // 5. Nomor Mangkuk
+  const bowlMatch =
+    combinedNotes.match(/mangkuk[:\s]*#?([a-zA-Z0-9_-]+)/i) ||
+    (transaction.customerName && transaction.customerName.match(/mangkuk[:\s]*#?([a-zA-Z0-9_-]+)/i));
+  const bowlNumber = bowlMatch ? (bowlMatch[1].startsWith('#') ? bowlMatch[1] : `#${bowlMatch[1]}`) : '-';
+
+  const cleanCustomerName = (transaction.customerName || 'Pelanggan Umum')
+    .replace(/\s*\(\s*mangkuk[:\s]*#?[^)]+\)/i, '')
+    .trim() || 'Pelanggan Umum';
+
   // Pisahkan Topping & Minuman
   const drinkItems: OrderItem[] = [];
   const toppingMap = new Map<string, { count: number; price: number }>();
@@ -236,8 +246,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             {/* 1. Detail Pelanggan & Pesanan */}
             <div className="space-y-1 pb-2 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-xs font-bold">
               <div className="flex justify-between">
+                <span>No. Mangkuk:</span>
+                <span className="text-right font-black">{bowlNumber}</span>
+              </div>
+              <div className="flex justify-between">
                 <span>Pelanggan:</span>
-                <span className="text-right break-words max-w-[180px]">{transaction.customerName || 'Pelanggan Umum'}</span>
+                <span className="text-right break-words max-w-[170px]">{cleanCustomerName}</span>
               </div>
               <div className="flex justify-between">
                 <span>Makan di:</span>
