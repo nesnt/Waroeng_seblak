@@ -185,10 +185,11 @@ try {
         $buffer.AddRange($b)
     }
 
-    # Initialize ESC/POS (Left align & Standard Normal Font Size)
+    # Initialize ESC/POS (Left align, Tulisan Sedikit Lebih Besar: Double Height & Bold)
     Add-Bytes @(0x1B, 0x40)       # Reset printer
     Add-Bytes @(0x1B, 0x61, 0x00) # Left align
-    Add-Bytes @(0x1D, 0x21, 0x00) # Ukuran font normal standar (semua teks sama persis)
+    Add-Bytes @(0x1D, 0x21, 0x01) # Double height (tulisan sedikit diperbesar)
+    Add-Bytes @(0x1B, 0x45, 0x01) # Bold ON
 
     # 1. Info Pelanggan & Pesanan
     $cust = if ($tx.customerName) { $tx.customerName } else { "Pelanggan Umum" }
@@ -223,8 +224,13 @@ try {
     }
     Add-Text "--------------------------------`n"
 
-    # 4. Total (Ukuran font standar sama persis)
+    # 4. Total (Perbesar: Double Width & Double Height + Bold)
+    Add-Bytes @(0x1D, 0x21, 0x11) # Double width & height
+    Add-Bytes @(0x1B, 0x45, 0x01) # Bold
     Add-Text "TOTAL: $(Format-Rp $tx.totalAmount)`n"
+    Add-Bytes @(0x1B, 0x45, 0x00) # Reset bold
+    Add-Bytes @(0x1D, 0x21, 0x00) # Reset size
+
     Add-Text "`n`n`n" # Feed 3 baris kertas
 
     # Paper Cut

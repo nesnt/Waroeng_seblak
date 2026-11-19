@@ -93,10 +93,11 @@ export function generateEscPosBytes(
     for (const b of encoded) bytes.push(b);
   };
 
-  // 1. Initialize ESC/POS (Left align & Standard Normal Font Size)
+  // 1. Initialize ESC/POS (Left align, Tulisan Sedikit Lebih Besar: Double Height & Bold)
   addBytes([0x1B, 0x40]); // Reset printer
   addBytes([0x1B, 0x61, 0x00]); // Left align
-  addBytes([0x1D, 0x21, 0x00]); // Ukuran font normal standar (semua sama)
+  addBytes([0x1D, 0x21, 0x01]); // Double height (tulisan sedikit diperbesar)
+  addBytes([0x1B, 0x45, 0x01]); // Bold / Emphasized ON
 
   // 2. Parser Detail Pesanan
   const combined = `${transaction.notes || ''} ${transaction.items
@@ -191,8 +192,12 @@ export function generateEscPosBytes(
   }
   addText('--------------------------------\n');
 
-  // 5. Total (Ukuran font standar sama persis)
+  // 5. Total (Perbesar: Double Width & Double Height + Bold)
+  addBytes([0x1D, 0x21, 0x11]); // Double width & height
+  addBytes([0x1B, 0x45, 0x01]); // Bold
   addText(`TOTAL: ${formatRupiah(transaction.totalAmount)}\n`);
+  addBytes([0x1B, 0x45, 0x00]); // Reset bold
+  addBytes([0x1D, 0x21, 0x00]); // Reset size
   addText('\n\n\n'); // Feed lines untuk pemotongan kertas
 
   // 6. Cut
