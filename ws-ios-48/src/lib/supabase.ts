@@ -36,11 +36,13 @@ const findKeyFromEnv = (): string => {
   const envObj = import.meta.env as Record<string, any>;
   const standardNames = [
     'VITE_SUPABASE_ANON_KEY',
+    'VITE_SUPABASE_PUBLISHABLE_KEY',
     'VITE_SUPABASE_KEY',
     'VITE_SUPABASE_PUBLIC_KEY',
     'VITE_SUPABASE_API_KEY',
     'VITE_ANON_KEY',
     'SUPABASE_ANON_KEY',
+    'SUPABASE_PUBLISHABLE_KEY',
     'SUPABASE_KEY',
     'SUPABASE_PUBLIC_KEY',
     'SUPABASE_API_KEY',

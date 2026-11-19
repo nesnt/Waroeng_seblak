@@ -42,11 +42,18 @@ jobs:
       - name: Build Web Assets
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_GOOGLE_APPS_SCRIPT_URL: ${{ secrets.VITE_GOOGLE_APPS_SCRIPT_URL }}
+          VITE_GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.VITE_GOOGLE_DRIVE_FOLDER_ID }}
         run: |
           cd ws-ios-48
+          FINAL_KEY="${VITE_SUPABASE_ANON_KEY:-$VITE_SUPABASE_PUBLISHABLE_KEY}"
           echo "VITE_SUPABASE_URL=$VITE_SUPABASE_URL" >> .env
-          echo "VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY" >> .env
+          echo "VITE_SUPABASE_ANON_KEY=$FINAL_KEY" >> .env
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=$FINAL_KEY" >> .env
+          if [ -n "$VITE_GOOGLE_APPS_SCRIPT_URL" ]; then echo "VITE_GOOGLE_APPS_SCRIPT_URL=$VITE_GOOGLE_APPS_SCRIPT_URL" >> .env; fi
+          if [ -n "$VITE_GOOGLE_DRIVE_FOLDER_ID" ]; then echo "VITE_GOOGLE_DRIVE_FOLDER_ID=$VITE_GOOGLE_DRIVE_FOLDER_ID" >> .env; fi
           npm run build
 
       - name: Capacitor Copy & Sync iOS Assets
