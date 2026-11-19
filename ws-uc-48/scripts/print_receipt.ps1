@@ -231,10 +231,8 @@ try {
     Add-Bytes @(0x1B, 0x45, 0x00) # Reset bold
     Add-Bytes @(0x1D, 0x21, 0x00) # Reset size
 
-    Add-Text "`n`n`n" # Feed 3 baris kertas
-
-    # Paper Cut
-    Add-Bytes @(0x1D, 0x56, 0x42, 0x00)
+    # Hemat kertas: berhenti langsung setelah TOTAL tanpa feed kosong
+    Add-Text "`n"
 
     # 7. Kirim ke Printer
     $bytes = $buffer.ToArray()

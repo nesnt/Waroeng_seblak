@@ -198,10 +198,8 @@ export function generateEscPosBytes(
   addText(`TOTAL: ${formatRupiah(transaction.totalAmount)}\n`);
   addBytes([0x1B, 0x45, 0x00]); // Reset bold
   addBytes([0x1D, 0x21, 0x00]); // Reset size
-  addText('\n\n\n'); // Feed lines untuk pemotongan kertas
-
-  // 6. Cut
-  addBytes([0x1D, 0x56, 0x42, 0x00]);
+  // Hemat kertas: berhenti langsung setelah TOTAL tanpa feed kosong berlebih
+  addText('\n');
 
   return bytes;
 }
