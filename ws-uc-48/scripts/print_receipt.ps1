@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$JsonPath = "",
     [string]$PrinterName = ""
 )
@@ -136,6 +136,8 @@ try {
     $customerNote = ""
     if ($combined -match "catatan[:\s]+([^|·]+)") {
         $customerNote = $matches[1].Trim()
+    } elseif ($tx.notes -and $tx.notes -notmatch "kuah|pedas|makan di sini|dibungkus") {
+        $customerNote = $tx.notes.Trim()
     }
 
     # 5. Pisahkan Topping & Minuman
@@ -183,58 +185,34 @@ try {
         $buffer.AddRange($b)
     }
 
-    # Initialize
-    Add-Bytes @(0x1B, 0x40)
+    # Initialize ESC/POS (Left align & Standard Normal Font Size)
+    Add-Bytes @(0x1B, 0x40)       # Reset printer
+    Add-Bytes @(0x1B, 0x61, 0x00) # Left align
+    Add-Bytes @(0x1D, 0x21, 0x00) # Ukuran font normal standar (semua teks sama persis)
 
-    # 1. Header (Center)
-    Add-Bytes @(0x1B, 0x61, 0x01) # Align center
-    Add-Bytes @(0x1D, 0x21, 0x11) # Double width & height
-    $sName = if ($set.storeName) { $set.storeName } else { "WAROENG SEBLAK 48" }
-    Add-Text "$sName`n"
-    Add-Bytes @(0x1D, 0x21, 0x00) # Normal size
-
-    if ($set.slogan) { Add-Text "$($set.slogan)`n" }
-    if ($set.address) { Add-Text "$($set.address)`n" }
-    if ($set.phone) { Add-Text "WA: $($set.phone)`n" }
-    Add-Text "--------------------------------`n"
-
-    # 2. Info Transaksi (Left)
-    Add-Bytes @(0x1B, 0x61, 0x00) # Align left
-    Add-Text "No. Nota  : $($tx.invoiceNumber)`n"
-    Add-Text "Waktu     : $(Format-Tanggal $tx.date)`n"
+    # 1. Info Pelanggan & Pesanan
     $cust = if ($tx.customerName) { $tx.customerName } else { "Pelanggan Umum" }
+    $cNote = if ($customerNote) { $customerNote } else { "-" }
+
     Add-Text "Pelanggan : $cust`n"
+    Add-Text "Makan di  : $dineType`n"
+    Add-Text "Kuah      : $brothType`n"
+    Add-Text "Pedas     : $spicy`n"
+    Add-Text "Catatan   : $cNote`n"
     Add-Text "--------------------------------`n"
 
-    # 3. Detail Pesanan (BESAR & TEBAL)
-    Add-Bytes @(0x1D, 0x21, 0x01) # Double height
-    Add-Text "MAKAN DI: $($dineType.ToUpper())`n"
-    Add-Text "KUAH    : $($brothType.ToUpper())`n"
-    Add-Text "PEDAS   : $($spicy.ToUpper())`n"
-    Add-Bytes @(0x1D, 0x21, 0x00) # Normal
-
-    if ($customerNote) {
-        Add-Text "Catatan : $customerNote`n"
-    }
-    Add-Text "--------------------------------`n"
-
-    # 4. Topping & Minuman
-    $totalToppingCount = 0
-    foreach ($k in $toppingHash.Keys) { $totalToppingCount += $toppingHash[$k] }
-
-    $topTitle = "TOPPING"
-    if ($totalToppingCount -gt 0) { $topTitle += " ($totalToppingCount pcs)" }
-    Add-Text "${topTitle}:`n"
-
+    # 2. Topping
+    Add-Text "TOPPING:`n"
     if ($toppingHash.Count -gt 0) {
         foreach ($k in $toppingHash.Keys) {
             Add-Text " • $k x$($toppingHash[$k])`n"
         }
     } else {
-        Add-Text " - Tanpa Topping Tambahan -`n"
+        Add-Text " - Tanpa Topping -`n"
     }
     Add-Text "--------------------------------`n"
 
+    # 3. Minuman
     Add-Text "MINUMAN:`n"
     if ($drinks.Count -gt 0) {
         foreach ($d in $drinks) {
@@ -245,16 +223,9 @@ try {
     }
     Add-Text "--------------------------------`n"
 
-    # 5. TOTAL (Double Width & Height)
-    Add-Bytes @(0x1D, 0x21, 0x11)
+    # 4. Total (Ukuran font standar sama persis)
     Add-Text "TOTAL: $(Format-Rp $tx.totalAmount)`n"
-    Add-Bytes @(0x1D, 0x21, 0x00)
-    Add-Text "--------------------------------`n"
-
-    # 6. Footer (Center)
-    Add-Bytes @(0x1B, 0x61, 0x01)
-    Add-Text "Hatur Nuhun! Wilujeng Tuang!`n"
-    Add-Text "Simpan struk bukti pembayaran.`n`n`n`n" # 4 feeds
+    Add-Text "`n`n`n" # Feed 3 baris kertas
 
     # Paper Cut
     Add-Bytes @(0x1D, 0x56, 0x42, 0x00)

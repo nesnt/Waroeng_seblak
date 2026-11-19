@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Transaction, StoreSettings, OrderItem } from '../types';
-import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
+import { formatRupiah } from '../utils/formatters';
 import { printViaCapacitorBluetooth, resetPrinterBluetooth } from '../utils/capacitorBluetoothPrint';
 import { printViaLaptopPrinter } from '../utils/laptopPrint';
 import { Capacitor } from '@capacitor/core';
@@ -194,8 +194,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     }
   }
 
-  const totalToppingQty = toppingsList.reduce((acc, t) => acc + t.count, 0);
-
   return createPortal(
     <div className="receipt-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
       <div className="receipt-modal-box bg-white dark:bg-stone-900 rounded-3xl shadow-2xl max-w-sm sm:max-w-md w-full border border-stone-200 dark:border-stone-800 overflow-hidden flex flex-col max-h-[92vh]">
@@ -226,140 +224,75 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         {/* Info Petunjuk (Layar Only) */}
         <div className="no-print px-5 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
           <Info className="w-4 h-4 shrink-0" />
-          <span>Detail pesanan dicetak lebih besar agar mudah dibaca dapur & kasir.</span>
+          <span>Format struk minimalis dapur & kasir (ukuran font seragam).</span>
         </div>
 
-        {/* Struk Content (Format Standar Thermal 58mm) */}
+        {/* Struk Content (Format Standar Thermal 58mm Minimalis) */}
         <div className="receipt-scroll-container p-4 sm:p-5 overflow-y-auto flex-1 flex justify-center bg-stone-100 dark:bg-stone-950/40">
           <div
             id="printable-receipt"
             className="w-full max-w-[310px] bg-white dark:bg-stone-950 p-4 rounded-xl border border-dashed border-stone-400 dark:border-stone-700 font-sans text-xs text-stone-950 dark:text-stone-50 shadow-sm space-y-2.5"
           >
-            {/* 1. Header Toko */}
-            <div className="text-center space-y-0.5 pb-2 border-b-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-b-2">
-              <h4 className="font-black text-base uppercase tracking-wider text-stone-950 dark:text-white print:text-black leading-tight">
-                {settings.storeName || 'WAROENG SEBLAK 48'}
-              </h4>
-              {settings.slogan && (
-                <p className="text-[11px] font-bold text-stone-800 dark:text-stone-200 print:text-black">
-                  {settings.slogan}
-                </p>
-              )}
-              {settings.address && (
-                <p className="text-[11px] font-semibold text-stone-800 dark:text-stone-200 print:text-black leading-tight">
-                  {settings.address}
-                </p>
-              )}
-              {settings.phone && (
-                <p className="text-[11px] font-bold text-stone-800 dark:text-stone-200 print:text-black">
-                  WA: {settings.phone}
-                </p>
-              )}
-            </div>
-
-            {/* 2. Info Transaksi (Hanya: No, Waktu, dan Nama Pelanggan) */}
-            <div className="space-y-1 py-1.5 border-b-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-b-2 text-xs">
-              <div className="flex justify-between font-bold">
-                <span className="text-stone-900 dark:text-stone-100 print:text-black">No. Nota:</span>
-                <span className="font-black print:text-black">{transaction.invoiceNumber}</span>
+            {/* 1. Detail Pelanggan & Pesanan */}
+            <div className="space-y-1 pb-2 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-xs font-bold">
+              <div className="flex justify-between">
+                <span>Pelanggan:</span>
+                <span className="text-right break-words max-w-[180px]">{transaction.customerName || 'Pelanggan Umum'}</span>
               </div>
-              <div className="flex justify-between font-semibold">
-                <span className="text-stone-900 dark:text-stone-100 print:text-black">Waktu:</span>
-                <span className="print:text-black font-bold">{formatIndonesianDate(transaction.date)}</span>
-              </div>
-              <div className="flex justify-between font-bold">
-                <span className="text-stone-900 dark:text-stone-100 print:text-black">Pelanggan:</span>
-                <span className="font-black print:text-black break-words text-right max-w-[170px]">
-                  {transaction.customerName || 'Pelanggan Umum'}
-                </span>
-              </div>
-            </div>
-
-            {/* 3. Detail Pesanan (KHUSUS BAGIAN INI CETAK DENGAN UKURAN TULISAN LEBIH BESAR & BOLD) */}
-            <div className="order-details-box py-2 border-b-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-b-2 space-y-1 bg-stone-50 dark:bg-stone-900/60 print:bg-transparent p-2 rounded-lg print:p-0">
-              <div className="flex justify-between items-center text-sm print:text-base font-black text-stone-950 dark:text-white print:text-black">
+              <div className="flex justify-between">
                 <span>Makan di:</span>
-                <span className="order-val uppercase tracking-wide">{dineType}</span>
+                <span>{dineType}</span>
               </div>
-              <div className="flex justify-between items-center text-sm print:text-base font-black text-stone-950 dark:text-white print:text-black">
+              <div className="flex justify-between">
                 <span>Kuah:</span>
-                <span className="order-val uppercase tracking-wide">{brothType}</span>
+                <span>{brothType}</span>
               </div>
-              <div className="flex justify-between items-center text-sm print:text-base font-black text-stone-950 dark:text-white print:text-black">
+              <div className="flex justify-between">
                 <span>Pedas:</span>
-                <span className="order-val uppercase tracking-wide text-red-600 dark:text-red-400 print:text-black">
-                  {spicy}
-                </span>
+                <span>{spicy}</span>
               </div>
-              {customerNote && (
-                <div className="pt-1 border-t border-dashed border-stone-400 print:border-black text-xs print:text-sm font-black text-stone-900 dark:text-stone-100 print:text-black leading-tight">
-                  <span>Catatan: </span>
-                  <span className="italic">{customerNote}</span>
+              <div className="flex justify-between">
+                <span>Catatan:</span>
+                <span className="text-right break-words max-w-[180px] italic">{customerNote || '-'}</span>
+              </div>
+            </div>
+
+            {/* 2. Daftar Topping */}
+            <div className="py-1.5 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-xs font-bold space-y-1">
+              <div>TOPPING:</div>
+              {toppingsList.length > 0 ? (
+                <div className="space-y-0.5 pl-2">
+                  {toppingsList.map((t, idx) => (
+                    <div key={idx} className="flex justify-between">
+                      <span>• {t.name} x{t.count}</span>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <div className="pl-2 font-normal italic">- Tanpa Topping -</div>
               )}
             </div>
 
-            {/* 4. Daftar Topping & Minuman (Yang Jelas Minumannya) */}
-            <div className="py-2 border-b-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-b-2 space-y-2">
-              {/* List Topping */}
-              <div>
-                <div className="text-[11px] font-black uppercase text-stone-600 dark:text-stone-300 print:text-black mb-1">
-                  TOPPING {totalToppingQty > 0 ? `(${totalToppingQty} pcs)` : ''}:
+            {/* 3. Daftar Minuman */}
+            <div className="py-1.5 border-b border-dashed border-stone-800 dark:border-stone-300 print:border-black text-xs font-bold space-y-1">
+              <div>MINUMAN:</div>
+              {drinkItems.length > 0 ? (
+                <div className="space-y-0.5 pl-2">
+                  {drinkItems.map((drink, idx) => (
+                    <div key={idx} className="flex justify-between">
+                      <span>• {drink.menuItemName} x{drink.quantity}</span>
+                    </div>
+                  ))}
                 </div>
-                {toppingsList.length > 0 ? (
-                  <div className="space-y-0.5 pl-1">
-                    {toppingsList.map((t, idx) => (
-                      <div key={idx} className="flex justify-between text-xs font-bold leading-tight">
-                        <span className="print:text-black">• {t.name} x{t.count}</span>
-                        {t.price > 0 && (
-                          <span className="print:text-black">{formatRupiah(t.price * t.count)}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs font-semibold italic text-stone-600 dark:text-stone-400 print:text-black pl-1">
-                    - Tanpa Topping Tambahan -
-                  </div>
-                )}
-              </div>
-
-              {/* List Minuman (Yang Jelas Minumannya) */}
-              <div className="pt-1.5 border-t border-dashed border-stone-300 dark:border-stone-700 print:border-black">
-                <div className="text-[11px] font-black uppercase text-stone-600 dark:text-stone-300 print:text-black mb-1">
-                  MINUMAN:
-                </div>
-                {drinkItems.length > 0 ? (
-                  <div className="space-y-1 pl-1">
-                    {drinkItems.map((drink, idx) => (
-                      <div key={idx} className="flex justify-between items-start text-xs font-black leading-tight">
-                        <span className="flex-1 pr-2 print:text-black">🥤 {drink.menuItemName} x{drink.quantity}</span>
-                        <span className="shrink-0 print:text-black">{formatRupiah(drink.subtotal)}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs font-semibold italic text-stone-600 dark:text-stone-400 print:text-black pl-1">
-                    - Tanpa Minuman -
-                  </div>
-                )}
-              </div>
+              ) : (
+                <div className="pl-2 font-normal italic">- Tanpa Minuman -</div>
+              )}
             </div>
 
-            {/* 5. Bagian Harga (CUKUP TOTAL SAJA, Tanpa Metode / Tunai / Kembalian) */}
-            <div className="py-2.5 border-b-2 border-dashed border-stone-800 dark:border-stone-300 print:border-black print:border-b-2">
-              <div className="flex justify-between items-center font-black text-base print:text-lg text-stone-950 dark:text-white print:text-black">
-                <span>TOTAL:</span>
-                <span className="text-lg print:text-xl">{formatRupiah(transaction.totalAmount)}</span>
-              </div>
-            </div>
-
-            {/* 6. Footer Struk */}
-            <div className="text-center pt-2 text-[11px] text-stone-800 dark:text-stone-200 print:text-black space-y-0.5 pb-1 font-bold">
-              <p className="font-black text-stone-950 dark:text-white print:text-black">
-                Hatur Nuhun! Wilujeng Tuang!
-              </p>
-              <p>Simpan struk ini sebagai bukti pembayaran.</p>
+            {/* 4. Total */}
+            <div className="pt-1.5 text-xs font-bold flex justify-between items-center">
+              <span>TOTAL:</span>
+              <span>{formatRupiah(transaction.totalAmount)}</span>
             </div>
           </div>
         </div>

@@ -75,6 +75,8 @@ async function discoverPrinterGatt(deviceId: string): Promise<{
 
 /**
  * Rakit byte ESC/POS struk thermal 58mm
+ * Hanya mencakup: Pelanggan, Makan di mana, Kuah, Pedas, Catatan, Topping, Minuman, Total.
+ * Semua teks menggunakan ukuran font yang sama (standar ESC/POS).
  */
 export function generateEscPosBytes(
   transaction: Transaction,
@@ -91,28 +93,12 @@ export function generateEscPosBytes(
     for (const b of encoded) bytes.push(b);
   };
 
-  // 1. Initialize ESC/POS
-  addBytes([0x1B, 0x40]);
+  // 1. Initialize ESC/POS (Left align & Standard Normal Font Size)
+  addBytes([0x1B, 0x40]); // Reset printer
+  addBytes([0x1B, 0x61, 0x00]); // Left align
+  addBytes([0x1D, 0x21, 0x00]); // Ukuran font normal standar (semua sama)
 
-  // 2. Header Toko (Center)
-  addBytes([0x1B, 0x61, 0x01]);
-  addBytes([0x1D, 0x21, 0x11]); // Double width & height
-  addText(`${settings.storeName || 'WAROENG SEBLAK 48'}\n`);
-  addBytes([0x1D, 0x21, 0x00]); // Normal
-
-  if (settings.slogan) addText(`${settings.slogan}\n`);
-  if (settings.address) addText(`${settings.address}\n`);
-  if (settings.phone) addText(`WA: ${settings.phone}\n`);
-  addText('--------------------------------\n');
-
-  // 3. Info Transaksi (Left)
-  addBytes([0x1B, 0x61, 0x00]);
-  addText(`No. Nota  : ${transaction.invoiceNumber}\n`);
-  addText(`Waktu     : ${formatIndonesianDate(transaction.date)}\n`);
-  addText(`Pelanggan : ${transaction.customerName || 'Pelanggan Umum'}\n`);
-  addText('--------------------------------\n');
-
-  // 4. Detail Pesanan (Huruf Lebih Besar & Bold)
+  // 2. Parser Detail Pesanan
   const combined = `${transaction.notes || ''} ${transaction.items
     .map((i) => i.notes || '')
     .join(' ')}`;
@@ -140,24 +126,23 @@ export function generateEscPosBytes(
     }
   }
 
-  let customerNote = '';
+  let customerNote = '-';
   const noteMatch = combined.match(/catatan[:\s]+([^|·]+)/i);
   if (noteMatch && noteMatch[1]) {
     customerNote = noteMatch[1].trim();
+  } else if (transaction.notes && !/kuah|pedas|makan di sini|dibungkus/i.test(transaction.notes)) {
+    customerNote = transaction.notes.trim();
   }
 
-  addBytes([0x1D, 0x21, 0x01]); // Double height
-  addText(`MAKAN DI: ${dineType.toUpperCase()}\n`);
-  addText(`KUAH    : ${brothType.toUpperCase()}\n`);
-  addText(`PEDAS   : ${spicy.toUpperCase()}\n`);
-  addBytes([0x1D, 0x21, 0x00]); // Normal
-
-  if (customerNote) {
-    addText(`Catatan : ${customerNote}\n`);
-  }
+  // 3. Info Pelanggan & Mangkuk
+  addText(`Pelanggan : ${transaction.customerName || 'Pelanggan Umum'}\n`);
+  addText(`Makan di  : ${dineType}\n`);
+  addText(`Kuah      : ${brothType}\n`);
+  addText(`Pedas     : ${spicy}\n`);
+  addText(`Catatan   : ${customerNote}\n`);
   addText('--------------------------------\n');
 
-  // 5. Topping & Minuman
+  // 4. Pisahkan Topping & Minuman
   const drinkItems: OrderItem[] = [];
   const toppingMap = new Map<string, number>();
 
@@ -185,15 +170,14 @@ export function generateEscPosBytes(
     name,
     count,
   }));
-  const totalToppingQty = toppingsList.reduce((acc, t) => acc + t.count, 0);
 
-  addText(`TOPPING ${totalToppingQty > 0 ? `(${totalToppingQty} pcs)` : ''}:\n`);
+  addText('TOPPING:\n');
   if (toppingsList.length > 0) {
     toppingsList.forEach((t) => {
       addText(` • ${t.name} x${t.count}\n`);
     });
   } else {
-    addText(' - Tanpa Topping Tambahan -\n');
+    addText(' - Tanpa Topping -\n');
   }
   addText('--------------------------------\n');
 
@@ -207,18 +191,11 @@ export function generateEscPosBytes(
   }
   addText('--------------------------------\n');
 
-  // 6. TOTAL (Double Width & Height)
-  addBytes([0x1D, 0x21, 0x11]);
+  // 5. Total (Ukuran font standar sama persis)
   addText(`TOTAL: ${formatRupiah(transaction.totalAmount)}\n`);
-  addBytes([0x1D, 0x21, 0x00]);
-  addText('--------------------------------\n');
+  addText('\n\n\n'); // Feed lines untuk pemotongan kertas
 
-  // 7. Footer (Center)
-  addBytes([0x1B, 0x61, 0x01]);
-  addText('Hatur Nuhun! Wilujeng Tuang!\n');
-  addText('Simpan struk bukti pembayaran.\n\n\n\n');
-
-  // 8. Cut
+  // 6. Cut
   addBytes([0x1D, 0x56, 0x42, 0x00]);
 
   return bytes;
