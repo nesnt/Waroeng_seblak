@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { MenuItem } from '../types';
 import { formatRupiah } from '../utils/formatters';
+import { generateUuid } from '../services/storage';
 import { IngredientImage } from './IngredientIllustration';
 import {
   Search,
@@ -21,6 +22,7 @@ import {
   uploadImageToGoogleDrive,
   formatGoogleDriveDirectUrl,
   isDriveUploadConfigured,
+  validateImageFile,
 } from '../services/driveUpload';
 
 interface DrinkMenuViewProps {
@@ -464,6 +466,7 @@ const DrinkFormModal: React.FC<DrinkFormModalProps> = ({ drink, onClose, onSave 
   const [unit, setUnit] = useState<string>(drink?.unit || 'pcs');
   const [isAvailable, setIsAvailable] = useState<boolean>(drink?.isAvailable ?? true);
   const [imageUrl, setImageUrl] = useState<string>(drink?.imageUrl || '');
+  const [previewDataUrl, setPreviewDataUrl] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -473,24 +476,56 @@ const DrinkFormModal: React.FC<DrinkFormModalProps> = ({ drink, onClose, onSave 
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const check = validateImageFile(file);
+    if (!check.valid) {
+      setUploadError(check.error || 'File gambar tidak valid.');
+      setSelectedFile(null);
+      setPreviewDataUrl('');
+      e.target.value = '';
+      return;
+    }
+
+    if (!isDriveUploadConfigured()) {
+      setUploadError(
+        'Fitur unggah langsung belum aktif (VITE_GOOGLE_APPS_SCRIPT_URL belum diatur). Silakan tempel Link URL Foto di bawah atau gunakan ilustrasi bawaan.'
+      );
+      setSelectedFile(null);
+      setPreviewDataUrl('');
+      e.target.value = '';
+      return;
+    }
+
     setUploadError(null);
     setSelectedFile(file);
 
-    // Baca file secara lokal HANYA untuk pratinjau
-    // Foto BELUM diunggah ke Google Drive sampai tombol 'Simpan Minuman' ditekan
     const reader = new FileReader();
     reader.onloadend = () => {
       if (typeof reader.result === 'string') {
-        setImageUrl(reader.result);
-        setUploadSuccess(`Foto "${file.name}" dipilih. Foto akan diunggah saat Anda klik Simpan Minuman.`);
+        setPreviewDataUrl(reader.result);
+        setUploadSuccess(`Foto "${file.name}" siap diunggah saat Anda klik Simpan Minuman.`);
       }
     };
     reader.readAsDataURL(file);
   };
 
   const handleUrlInput = (val: string) => {
-    const formatted = formatGoogleDriveDirectUrl(val);
+    const trimmed = val.trim();
+    if (!trimmed) {
+      setImageUrl('');
+      setPreviewDataUrl('');
+      setSelectedFile(null);
+      setUploadError(null);
+      setUploadSuccess(null);
+      return;
+    }
+    const formatted = formatGoogleDriveDirectUrl(trimmed);
+    if (!formatted) {
+      setImageUrl(trimmed);
+      setUploadError('Link foto harus diawali dengan https:// atau http://');
+      return;
+    }
     setImageUrl(formatted);
+    setPreviewDataUrl('');
     setSelectedFile(null);
     setUploadError(null);
     setUploadSuccess(null);
@@ -501,9 +536,18 @@ const DrinkFormModal: React.FC<DrinkFormModalProps> = ({ drink, onClose, onSave 
     if (!name.trim()) return;
 
     let finalImageUrl = imageUrl.trim();
+    if (finalImageUrl && !/^https?:\/\//i.test(finalImageUrl)) {
+      setUploadError('Link foto tidak valid. Gunakan URL yang diawali https:// atau kosongkan.');
+      return;
+    }
 
-    // HANYA UNGGAH KE GOOGLE DRIVE JIKA ADA FILE BARU YANG DIPILIH
-    if (selectedFile && isDriveUploadConfigured()) {
+    if (selectedFile) {
+      if (!isDriveUploadConfigured()) {
+        setUploadError(
+          'VITE_GOOGLE_APPS_SCRIPT_URL belum diatur. Hapus pilihan file lokal atau tempel link URL foto.'
+        );
+        return;
+      }
       setIsSaving(true);
       setUploadError(null);
       setUploadSuccess(null);
@@ -514,7 +558,7 @@ const DrinkFormModal: React.FC<DrinkFormModalProps> = ({ drink, onClose, onSave 
         } else {
           setUploadError(res.error || 'Gagal mengunggah foto ke Google Drive.');
           setIsSaving(false);
-          return; // Hentikan penyimpanan agar user dapat melihat error atau mencoba lagi
+          return;
         }
       } catch (err: any) {
         setUploadError(err.message || 'Terjadi kesalahan saat mengunggah foto ke Google Drive.');
@@ -526,7 +570,7 @@ const DrinkFormModal: React.FC<DrinkFormModalProps> = ({ drink, onClose, onSave 
     }
 
     onSave({
-      id: drink?.id || `drink-${Date.now()}`,
+      id: drink?.id || generateUuid(),
       name: name.trim(),
       category: 'Minuman',
       basePrice: Number(basePrice) || 0,
@@ -570,11 +614,12 @@ const DrinkFormModal: React.FC<DrinkFormModalProps> = ({ drink, onClose, onSave 
                 <ImageIcon className="w-3.5 h-3.5 text-orange-600" />
                 Foto Minuman
               </span>
-              {imageUrl && (
+              {(imageUrl || previewDataUrl) && (
                 <button
                   type="button"
                   onClick={() => {
                     setImageUrl('');
+                    setPreviewDataUrl('');
                     setSelectedFile(null);
                     setUploadSuccess(null);
                     setUploadError(null);
@@ -590,7 +635,7 @@ const DrinkFormModal: React.FC<DrinkFormModalProps> = ({ drink, onClose, onSave 
               <IngredientImage
                 name={name || 'Minuman Seblak'}
                 category="Minuman"
-                imageUrl={imageUrl}
+                imageUrl={previewDataUrl || imageUrl}
                 className="w-full h-full object-cover"
               />
 

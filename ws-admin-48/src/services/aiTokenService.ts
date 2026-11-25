@@ -1,4 +1,7 @@
 import { supabase } from '../lib/supabase';
+import { toLocalDateKey } from '../utils/formatters';
+
+const BOT_API_BASE_URL = (import.meta.env.VITE_BOT_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
 
 export interface TokenUsageData {
   success: boolean;
@@ -41,12 +44,12 @@ export interface TokenUsageData {
  * Mengambil data pemakaian token dari bot server lokal atau fallback Supabase
  */
 export const fetchTokenUsage = async (): Promise<TokenUsageData> => {
-  // 1. Coba ambil dari REST API lokal bot (http://localhost:5000)
+  // 1. Coba ambil dari REST API bot (default http://localhost:5000 atau VITE_BOT_API_URL)
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-    const res = await fetch('http://localhost:5000/api/token-usage', {
+    const res = await fetch(`${BOT_API_BASE_URL}/api/token-usage`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -71,7 +74,7 @@ export const fetchTokenUsage = async (): Promise<TokenUsageData> => {
 export const fetchTokenUsageFromSupabase = async (): Promise<TokenUsageData> => {
   const DAILY_QUOTA_TOKENS = 1000000;
   const DAILY_QUOTA_REQUESTS = 1500;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = toLocalDateKey(new Date());
 
   try {
     const { data: logs, error } = await supabase
@@ -80,7 +83,28 @@ export const fetchTokenUsageFromSupabase = async (): Promise<TokenUsageData> => 
       .order('created_at', { ascending: false })
       .limit(100);
 
-    if (error) throw error;
+    // Jika tabel wa_chat_logs belum dibuat di Supabase, kembalikan kuota utuh secara bersih tanpa error
+    if (error) {
+      return {
+        success: true,
+        whatsapp: { isConnected: false, connectedUser: null },
+        model: 'gemini-3.1-flash-lite',
+        dailyQuotaTokens: DAILY_QUOTA_TOKENS,
+        dailyQuotaRequests: DAILY_QUOTA_REQUESTS,
+        today: {
+          promptTokens: 0,
+          candidatesTokens: 0,
+          totalTokens: 0,
+          requestsCount: 0,
+          remainingTokens: DAILY_QUOTA_TOKENS,
+          remainingRequests: DAILY_QUOTA_REQUESTS,
+          percentTokensUsed: 0,
+          percentRequestsUsed: 0,
+        },
+        allTime: { totalTokens: 0, totalRequests: 0 },
+        recentLogs: [],
+      };
+    }
 
     let todayPrompt = 0;
     let todayCandidates = 0;
@@ -112,7 +136,7 @@ export const fetchTokenUsageFromSupabase = async (): Promise<TokenUsageData> => 
     });
 
     for (const log of logs || []) {
-      const isToday = log.created_at?.startsWith(todayStr);
+      const isToday = log.created_at ? toLocalDateKey(log.created_at) === todayStr : false;
       const meta = log.tool_calls_executed?.tokenUsage || {};
       const prompt = Number(meta.promptTokens) || Math.ceil((log.incoming_message?.length || 10) / 4);
       const candidates = Number(meta.candidatesTokens) || Math.ceil((log.ai_response?.length || 20) / 4);

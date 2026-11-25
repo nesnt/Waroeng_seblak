@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Transaction, PaymentMethod } from '../types';
-import { formatRupiah, formatIndonesianDate, exportToCsv } from '../utils/formatters';
+import { formatRupiah, formatIndonesianDate, exportToCsv, toLocalDateKey } from '../utils/formatters';
 import {
   Search,
   Filter,
@@ -53,8 +53,8 @@ export const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
       // Payment
       const matchPayment = selectedPayment === 'Semua' || tx.paymentMethod === selectedPayment;
 
-      // Date Filter: jika pengguna memilih tanggal tertentu, filter persis tanggal tersebut
-      const txDateStr = tx.date ? tx.date.split('T')[0] : '';
+      // Date Filter: gunakan zona waktu lokal agar transaksi pagi/malam WIB akurat sesuai kalender
+      const txDateStr = tx.date ? toLocalDateKey(tx.date) : '';
 
       let matchDate = true;
       if (selectedDate) {
@@ -200,9 +200,13 @@ export const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
             Menampilkan <strong>{filteredTransactions.length}</strong> transaksi
           </span>
           <span>
-            Total Nilai:{' '}
+            Total Nilai (Selesai):{' '}
             <strong className="text-orange-600 dark:text-orange-400">
-              {formatRupiah(filteredTransactions.reduce((s, t) => s + t.totalAmount, 0))}
+              {formatRupiah(
+                filteredTransactions
+                  .filter((t) => t.status !== 'Batal')
+                  .reduce((s, t) => s + t.totalAmount, 0)
+              )}
             </strong>
           </span>
         </div>

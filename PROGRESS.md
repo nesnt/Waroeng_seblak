@@ -42,3 +42,15 @@ Status: Berjalan Normal & Terverifikasi (Admin Port 3001, Kasir Port 3000)
 - **Akses:**
   - Aktif di portal Kasir ([http://localhost:3000](http://localhost:3000)).
   - Tersedia skrip SQL Supabase di `planning/create_kasir_nabil.sql` untuk sinkronisasi cloud permanen.
+
+---
+
+### 4. Perencanaan Deployment VPS & Kebutuhan Kapasitas Server (20 November 2026)
+- **Identifikasi Komponen:**
+  - `ws-uc-48` & `ws-admin-48`: Frontend SPA (Vite React) disajikan statis via Nginx/Caddy.
+  - `ws-bot-48`: Backend Express + Baileys WhatsApp Gateway + Gemini Flash dijalankan via PM2 daemon (Port 5000).
+  - `ws-ios-48`: Capacitor client untuk iPad/iPhone kasir (Bluetooth LE printer).
+- **Spesifikasi VPS yang Ditetapkan:**
+  - **Skenario Rekomendasi (Web + Bot di VPS, Supabase BaaS Cloud):** 1-2 vCPU, 2 GB RAM, 25-30 GB SSD, Ubuntu 22.04 LTS.
+  - Dokumentasi cetak biru teknis lengkap tersimpan di [planning/VPS_REQUIREMENTS.md](file:///c:/code/Project_intern/seblak/planning/VPS_REQUIREMENTS.md).
+

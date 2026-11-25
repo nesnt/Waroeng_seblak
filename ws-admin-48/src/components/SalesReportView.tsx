@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Transaction, MenuItem } from '../types';
 import { formatRupiah, exportToCsv } from '../utils/formatters';
+import { fetchTransactionsByYearFromSupabase } from '../services/storage';
 import { ChartComponent } from './ChartComponent';
 import {
   Download,
@@ -44,6 +45,26 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
   const [selectedWeek, setSelectedWeek] = useState<number>(() => Math.min(4, Math.ceil(now.getDate() / 7)));
   const [selectedMonth, setSelectedMonth] = useState<number>(() => now.getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(() => now.getFullYear());
+  const [yearTransactions, setYearTransactions] = useState<Transaction[] | null>(null);
+
+  // Ambil seluruh transaksi pada tahun yang dipilih agar laporan bulanan/mingguan tidak terpotong limit
+  useEffect(() => {
+    let active = true;
+    fetchTransactionsByYearFromSupabase(selectedYear).then((res) => {
+      if (active && res) {
+        setYearTransactions(res);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedYear, transactions.length]);
+
+  // Sumber transaksi aktif yang sudah difilter dari status 'Batal'
+  const activeTransactionsSource = useMemo(() => {
+    const base = yearTransactions ?? transactions;
+    return base.filter((t) => t.status !== 'Batal');
+  }, [yearTransactions, transactions]);
 
   // Hitung jumlah hari dalam bulan & tahun yang dipilih
   const daysInSelectedMonth = useMemo(() => {
@@ -82,8 +103,8 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
     let breakdownRows: { label: string; count: number; revenue: number; avg: number }[] = [];
 
     if (reportPeriod === 'daily') {
-      // HARIAN: Omset dalam 1 hari pada Tanggal & Bulan yang dipilih
-      currentTxs = transactions.filter((t) => {
+      // HARIAN: Omset dalam 1 hari pada Tanggal, Bulan & Tahun yang dipilih
+      currentTxs = activeTransactionsSource.filter((t) => {
         const d = new Date(t.date);
         return (
           d.getFullYear() === selectedYear &&
@@ -94,7 +115,7 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
 
       // Pembanding: 1 hari sebelumnya
       const prevDate = new Date(selectedYear, selectedMonth, safeSelectedDay - 1);
-      prevTxs = transactions.filter((t) => {
+      prevTxs = activeTransactionsSource.filter((t) => {
         const d = new Date(t.date);
         return (
           d.getFullYear() === prevDate.getFullYear() &&
@@ -119,7 +140,7 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
       // MINGGUAN: Omset pada Minggu ke-X, Bulan & Tahun yang dipilih
       const [startDay, endDay] = getWeekDateRange(selectedWeek, daysInSelectedMonth);
 
-      currentTxs = transactions.filter((t) => {
+      currentTxs = activeTransactionsSource.filter((t) => {
         const d = new Date(t.date);
         const dateNum = d.getDate();
         return (
@@ -133,7 +154,7 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
       // Pembanding: Minggu sebelumnya
       let prevStart = new Date(selectedYear, selectedMonth, startDay - 7);
       let prevEnd = new Date(selectedYear, selectedMonth, startDay - 1, 23, 59, 59);
-      prevTxs = transactions.filter((t) => {
+      prevTxs = activeTransactionsSource.filter((t) => {
         const d = new Date(t.date);
         return d >= prevStart && d <= prevEnd;
       });
@@ -160,7 +181,7 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
       }
     } else {
       // BULANAN: Omset pada Bulan & Tahun yang dipilih
-      currentTxs = transactions.filter((t) => {
+      currentTxs = activeTransactionsSource.filter((t) => {
         const d = new Date(t.date);
         return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
       });
@@ -170,7 +191,7 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
       const prevMonthYear = prevMonthDate.getFullYear();
       const prevMonthIdx = prevMonthDate.getMonth();
 
-      prevTxs = transactions.filter((t) => {
+      prevTxs = activeTransactionsSource.filter((t) => {
         const d = new Date(t.date);
         return d.getFullYear() === prevMonthYear && d.getMonth() === prevMonthIdx;
       });
@@ -205,7 +226,7 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
       chartValues,
       breakdownRows,
     };
-  }, [transactions, reportPeriod, safeSelectedDay, selectedWeek, selectedMonth, selectedYear, daysInSelectedMonth]);
+  }, [activeTransactionsSource, reportPeriod, safeSelectedDay, selectedWeek, selectedMonth, selectedYear, daysInSelectedMonth]);
 
   // Aggregate metrics
   const totalRevenue = useMemo(() => {
@@ -383,9 +404,9 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
             </span>
           </div>
 
-          {/* 1. Opsi Sub-Filter HARIAN: Tanggal Berapa & Bulan Apa */}
+          {/* 1. Opsi Sub-Filter HARIAN: Tanggal, Bulan & Tahun */}
           {reportPeriod === 'daily' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full sm:w-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full sm:w-auto">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-stone-500 whitespace-nowrap">
                   Tanggal:
@@ -410,11 +431,28 @@ export const SalesReportView: React.FC<SalesReportViewProps> = ({ transactions }
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                  className="w-full sm:w-44 text-xs font-bold py-2 px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500"
+                  className="w-full sm:w-40 text-xs font-bold py-2 px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500"
                 >
                   {MONTH_NAMES.map((mName, idx) => (
                     <option key={mName} value={idx}>
                       {mName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-stone-500 whitespace-nowrap">
+                  Tahun:
+                </label>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="w-full sm:w-32 text-xs font-bold py-2 px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500"
+                >
+                  {AVAILABLE_YEARS.map((yr) => (
+                    <option key={yr} value={yr}>
+                      {yr}
                     </option>
                   ))}
                 </select>

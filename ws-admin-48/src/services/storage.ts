@@ -29,7 +29,63 @@ const STORAGE_KEYS = {
   TRANSACTIONS: 'seblak48_v3_transactions',
   STOCK_LOGS: 'seblak48_v2_stock_logs',
   SETTINGS: 'seblak48_v2_settings',
+  UI_PREFS: 'seblak48_admin_ui_prefs',
 };
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Menghasilkan UUID v4 standar agar ID lokal & PostgreSQL selalu identik sejak dibuat
+ */
+export function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function sanitizeCloudImageUrl(url?: string): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  // Jangan pernah menyimpan Base64 mentah ke kolom database cloud (mencegah bloat MB)
+  if (trimmed.startsWith('data:')) return null;
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  return trimmed;
+}
+
+function getLocalUiPrefs(): { isDarkMode?: boolean; textScale?: StoreSettings['textScale'] } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.UI_PREFS);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalUiPrefs(prefs: {
+  isDarkMode?: boolean;
+  textScale?: StoreSettings['textScale'];
+}): void {
+  try {
+    const current = getLocalUiPrefs();
+    localStorage.setItem(STORAGE_KEYS.UI_PREFS, JSON.stringify({ ...current, ...prefs }));
+  } catch {
+    // Ignore storage quota error
+  }
+}
+
+export function clearSensitiveLocalCache(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
+    localStorage.removeItem(STORAGE_KEYS.STOCK_LOGS);
+  } catch {
+    // Ignore error
+  }
+}
 
 // Helper status calculator
 export function calculateStockStatus(currentStock: number, minStock: number): StockStatus {
@@ -48,7 +104,8 @@ function mapDbIngredientToFrontend(row: any): Ingredient {
   return {
     id: row.id,
     name: row.name,
-    category: (row.categories?.name || row.category || 'Kerupuk') as any,
+    // Prioritaskan kolom category langsung agar hasil edit kategori tidak tertimpa relasi category_id lama
+    category: (row.category || row.categories?.name || 'Kerupuk') as any,
     currentStock,
     unit: row.unit || 'pcs',
     minStock,
@@ -60,20 +117,18 @@ function mapDbIngredientToFrontend(row: any): Ingredient {
 }
 
 function mapFrontendIngredientToDb(ing: Ingredient): any {
-  const isUuid = ing.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ing.id);
+  const isUuid = ing.id && UUID_REGEX.test(ing.id);
   const payload: any = {
+    id: isUuid ? ing.id : generateUuid(),
     name: ing.name,
     category: ing.category,
     current_stock: ing.currentStock,
     unit: ing.unit,
     min_stock: ing.minStock,
     last_purchase_price: ing.lastPurchasePrice,
-    image_url: ing.imageUrl || null,
+    image_url: sanitizeCloudImageUrl(ing.imageUrl),
     updated_at: new Date().toISOString(),
   };
-  if (isUuid) {
-    payload.id = ing.id;
-  }
   return payload;
 }
 
@@ -81,7 +136,7 @@ function mapDbMenuItemToFrontend(row: any): MenuItem {
   return {
     id: row.id,
     name: row.name,
-    category: (row.categories?.name || row.category || 'Seblak') as any,
+    category: (row.category || row.categories?.name || 'Seblak') as any,
     basePrice: Number(row.base_price ?? 0),
     description: row.description || '',
     isAvailable: row.is_available ?? true,
@@ -216,15 +271,15 @@ export async function fetchStockLogsFromSupabase(ingredientId?: string): Promise
   }
 }
 
-export async function fetchTransactionsFromSupabase(): Promise<Transaction[]> {
+export async function fetchTransactionsFromSupabase(limitCount = 1000): Promise<Transaction[]> {
   if (!isSupabaseConfigured()) return getTransactions();
   try {
-    // 1. Coba query transaksi beserta item dan topping
+    // 1. Coba query transaksi beserta item dan topping (batas ditingkatkan ke 1000 nota terbaru)
     let { data, error } = await supabase
       .from('transactions')
       .select('*, transaction_items(*, transaction_item_toppings(*))')
       .order('created_at', { ascending: false })
-      .limit(200);
+      .limit(limitCount);
 
     // 2. Jika query relasi gagal karena masalah cache schema PostgREST, fallback ke query transaksi utama
     if (error || !data) {
@@ -233,7 +288,7 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[]> {
         .from('transactions')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(limitCount);
       data = simpleRes.data;
       error = simpleRes.error;
     }
@@ -255,6 +310,42 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[]> {
   }
 }
 
+/**
+ * Mengambil seluruh transaksi untuk 1 tahun penuh dari Supabase (agar Laporan Bulanan/Tahunan tidak terpotong)
+ */
+export async function fetchTransactionsByYearFromSupabase(year: number): Promise<Transaction[] | null> {
+  if (!isSupabaseConfigured()) return null;
+  const startIso = new Date(year, 0, 1, 0, 0, 0).toISOString();
+  const endIso = new Date(year, 11, 31, 23, 59, 59, 999).toISOString();
+
+  try {
+    let { data, error } = await supabase
+      .from('transactions')
+      .select('*, transaction_items(*, transaction_item_toppings(*))')
+      .gte('created_at', startIso)
+      .lte('created_at', endIso)
+      .order('created_at', { ascending: false })
+      .limit(5000);
+
+    if (error || !data) {
+      const simpleRes = await supabase
+        .from('transactions')
+        .select('*')
+        .gte('created_at', startIso)
+        .lte('created_at', endIso)
+        .order('created_at', { ascending: false })
+        .limit(5000);
+      data = simpleRes.data;
+      error = simpleRes.error;
+    }
+
+    if (error || !Array.isArray(data)) return null;
+    return data.map(mapDbTransactionToFrontend);
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchSettingsFromSupabase(): Promise<StoreSettings> {
   if (!isSupabaseConfigured()) return getSettings();
   try {
@@ -266,15 +357,20 @@ export async function fetchSettingsFromSupabase(): Promise<StoreSettings> {
 
     if (error) throw error;
     if (data) {
+      const uiPrefs = getLocalUiPrefs();
+      const existingLocal = getSettings();
       const settings: StoreSettings = {
-        storeName: data.store_name,
-        slogan: data.slogan,
-        address: data.address,
-        phone: data.phone,
-        textScale: data.text_scale || 'normal',
-        isDarkMode: Boolean(data.is_dark_mode),
-        userName: 'Owner Waroeng',
-        userRole: 'Administrator',
+        storeName: data.store_name || existingLocal.storeName,
+        slogan: data.slogan ?? existingLocal.slogan,
+        address: data.address ?? existingLocal.address,
+        phone: data.phone ?? existingLocal.phone,
+        // Gunakan preferensi tampilan lokal per-perangkat jika sudah pernah diatur pengguna
+        textScale: uiPrefs.textScale || data.text_scale || 'normal',
+        isDarkMode: uiPrefs.isDarkMode !== undefined ? uiPrefs.isDarkMode : Boolean(data.is_dark_mode),
+        userName: existingLocal.userName || 'Owner Waroeng',
+        userRole: existingLocal.userRole || 'Administrator',
+        userEmail: existingLocal.userEmail,
+        userStatus: existingLocal.userStatus || 'Online',
       };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
       return settings;
@@ -372,12 +468,16 @@ export function getIngredients(): Ingredient[] {
   }
 }
 
-export function saveIngredient(ingredient: Ingredient): void {
+export async function saveIngredient(ingredient: Ingredient): Promise<void> {
   const current = getIngredients();
-  const index = current.findIndex((i) => i.id === ingredient.id);
+  const normalizedId = ingredient.id && UUID_REGEX.test(ingredient.id) ? ingredient.id : generateUuid();
+  const index = current.findIndex((i) => i.id === ingredient.id || i.id === normalizedId);
   const status = calculateStockStatus(ingredient.currentStock, ingredient.minStock);
+  const safeImageUrl = sanitizeCloudImageUrl(ingredient.imageUrl) || undefined;
   const updatedItem: Ingredient = {
     ...ingredient,
+    id: normalizedId,
+    imageUrl: safeImageUrl,
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -392,40 +492,30 @@ export function saveIngredient(ingredient: Ingredient): void {
 
   localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(updatedList));
 
-  // Sync ke Supabase di background
   if (isSupabaseConfigured()) {
     const dbPayload = mapFrontendIngredientToDb(updatedItem);
-    supabase
-      .from('ingredients')
-      .upsert(dbPayload)
-      .then(({ error }) => {
-        if (error) console.error('⚠️ [Supabase] Gagal menyimpan bahan:', error);
-      });
+    const { error } = await supabase.from('ingredients').upsert(dbPayload);
+    if (error) console.error('⚠️ [Supabase] Gagal menyimpan bahan:', error);
   }
 }
 
-export function deleteIngredient(id: string): void {
+export async function deleteIngredient(id: string): Promise<void> {
   const current = getIngredients();
   const filtered = current.filter((i) => i.id !== id);
   localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(filtered));
 
-  if (isSupabaseConfigured()) {
-    supabase
-      .from('ingredients')
-      .delete()
-      .eq('id', id)
-      .then(({ error }) => {
-        if (error) console.error('⚠️ [Supabase] Gagal menghapus bahan:', error);
-      });
+  if (isSupabaseConfigured() && UUID_REGEX.test(id)) {
+    const { error } = await supabase.from('ingredients').delete().eq('id', id);
+    if (error) console.error('⚠️ [Supabase] Gagal menghapus bahan:', error);
   }
 }
 
-export function adjustStock(
+export async function adjustStock(
   ingredientId: string,
   amountChange: number,
   type: 'masuk' | 'keluar',
   note: string
-): { success: boolean; newStock: number; message?: string } {
+): Promise<{ success: boolean; newStock: number; message?: string }> {
   const ingredients = getIngredients();
   const index = ingredients.findIndex((i) => i.id === ingredientId);
 
@@ -454,7 +544,7 @@ export function adjustStock(
   localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(ingredients));
 
   const newLog: StockLog = {
-    id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    id: generateUuid(),
     ingredientId: ing.id,
     ingredientName: ing.name,
     date: nowIso,
@@ -467,30 +557,24 @@ export function adjustStock(
 
   addStockLog(newLog);
 
-  // Sync ke Supabase di background
-  if (isSupabaseConfigured()) {
-    // 1. Update stok bahan
-    supabase
-      .from('ingredients')
-      .update({ current_stock: newStock, updated_at: nowIso })
-      .eq('id', ing.id)
-      .then(({ error }) => {
-        if (error) console.error('⚠️ [Supabase] Gagal update stok bahan:', error);
-      });
-
-    // 2. Tambah record stock_logs
-    supabase
-      .from('stock_logs')
-      .insert({
+  // Tunggu sinkronisasi stok & log ke Supabase agar modal Riwayat selalu akurat seketika
+  if (isSupabaseConfigured() && UUID_REGEX.test(ing.id)) {
+    const [{ error: updErr }, { error: logErr }] = await Promise.all([
+      supabase
+        .from('ingredients')
+        .update({ current_stock: newStock, updated_at: nowIso })
+        .eq('id', ing.id),
+      supabase.from('stock_logs').insert({
         ingredient_id: ing.id,
         type,
         amount: amountChange,
         balance_after: newStock,
         note: newLog.note,
-      })
-      .then(({ error }) => {
-        if (error) console.error('⚠️ [Supabase] Gagal mencatat stock log:', error);
-      });
+      }),
+    ]);
+
+    if (updErr) console.error('⚠️ [Supabase] Gagal update stok bahan:', updErr);
+    if (logErr) console.error('⚠️ [Supabase] Gagal mencatat stock log:', logErr);
   }
 
   return { success: true, newStock };
@@ -545,55 +629,51 @@ export function getMenuItems(): MenuItem[] {
   }
 }
 
-export function saveMenuItem(menuItem: MenuItem): void {
+export async function saveMenuItem(menuItem: MenuItem): Promise<void> {
   const current = getMenuItems();
-  const index = current.findIndex((m) => m.id === menuItem.id);
+  const normalizedId = menuItem.id && UUID_REGEX.test(menuItem.id) ? menuItem.id : generateUuid();
+  const index = current.findIndex((m) => m.id === menuItem.id || m.id === normalizedId);
+  const safeImageUrl = sanitizeCloudImageUrl(menuItem.imageUrl) || undefined;
+  const normalizedMenu: MenuItem = {
+    ...menuItem,
+    id: normalizedId,
+    imageUrl: safeImageUrl,
+  };
+
   let updatedList: MenuItem[];
   if (index >= 0) {
     updatedList = [...current];
-    updatedList[index] = menuItem;
+    updatedList[index] = normalizedMenu;
   } else {
-    updatedList = [menuItem, ...current];
+    updatedList = [normalizedMenu, ...current];
   }
   localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(updatedList));
 
   if (isSupabaseConfigured()) {
-    const isUuid = menuItem.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(menuItem.id);
     const payload: any = {
-      name: menuItem.name,
-      category: menuItem.category,
-      base_price: menuItem.basePrice,
-      description: menuItem.description,
-      image_url: menuItem.imageUrl || null,
-      stock: menuItem.stock ?? 50,
-      unit: menuItem.unit || 'pcs',
-      is_available: menuItem.isAvailable,
+      id: normalizedId,
+      name: normalizedMenu.name,
+      category: normalizedMenu.category,
+      base_price: normalizedMenu.basePrice,
+      description: normalizedMenu.description,
+      image_url: safeImageUrl || null,
+      stock: normalizedMenu.stock ?? 50,
+      unit: normalizedMenu.unit || 'pcs',
+      is_available: normalizedMenu.isAvailable,
     };
-    if (isUuid) {
-      payload.id = menuItem.id;
-    }
-    supabase
-      .from('menu_items')
-      .upsert(payload)
-      .then(({ error }) => {
-        if (error) console.error('⚠️ [Supabase] Gagal menyimpan menu item:', error);
-      });
+    const { error } = await supabase.from('menu_items').upsert(payload);
+    if (error) console.error('⚠️ [Supabase] Gagal menyimpan menu item:', error);
   }
 }
 
-export function deleteMenuItem(id: string): void {
+export async function deleteMenuItem(id: string): Promise<void> {
   const current = getMenuItems();
   const filtered = current.filter((m) => m.id !== id);
   localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(filtered));
 
-  if (isSupabaseConfigured()) {
-    supabase
-      .from('menu_items')
-      .delete()
-      .eq('id', id)
-      .then(({ error }) => {
-        if (error) console.error('⚠️ [Supabase] Gagal menghapus menu item:', error);
-      });
+  if (isSupabaseConfigured() && UUID_REGEX.test(id)) {
+    const { error } = await supabase.from('menu_items').delete().eq('id', id);
+    if (error) console.error('⚠️ [Supabase] Gagal menghapus menu item:', error);
   }
 }
 
@@ -780,22 +860,42 @@ export function createTransaction(
 
 export function getSettings(): StoreSettings {
   try {
+    const uiPrefs = getLocalUiPrefs();
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(INITIAL_SETTINGS));
-      return INITIAL_SETTINGS;
+      const merged = {
+        ...INITIAL_SETTINGS,
+        isDarkMode: uiPrefs.isDarkMode ?? INITIAL_SETTINGS.isDarkMode,
+        textScale: uiPrefs.textScale ?? INITIAL_SETTINGS.textScale,
+      };
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
+      return merged;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return {
+      ...parsed,
+      isDarkMode: uiPrefs.isDarkMode ?? parsed.isDarkMode,
+      textScale: uiPrefs.textScale ?? parsed.textScale,
+    };
   } catch (e) {
     console.error('Gagal membaca pengaturan:', e);
     return INITIAL_SETTINGS;
   }
 }
 
-export function saveSettings(settings: StoreSettings): void {
+/**
+ * Menyimpan pengaturan:
+ * - Preferensi tampilan (isDarkMode, textScale) selalu disimpan per-perangkat di localStorage.
+ * - Profil warung hanya disinkronkan ke tabel store_settings Supabase jika syncStoreProfile = true.
+ */
+export function saveSettings(settings: StoreSettings, syncStoreProfile = false): void {
+  saveLocalUiPrefs({
+    isDarkMode: settings.isDarkMode,
+    textScale: settings.textScale,
+  });
   localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
 
-  if (isSupabaseConfigured()) {
+  if (syncStoreProfile && isSupabaseConfigured()) {
     supabase
       .from('store_settings')
       .upsert({
@@ -804,8 +904,6 @@ export function saveSettings(settings: StoreSettings): void {
         slogan: settings.slogan,
         address: settings.address,
         phone: settings.phone,
-        text_scale: settings.textScale,
-        is_dark_mode: settings.isDarkMode,
         updated_at: new Date().toISOString(),
       })
       .then(({ error }) => {

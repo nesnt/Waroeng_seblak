@@ -14,7 +14,7 @@ export function normalizeAuthEmail(input: string): string {
 }
 
 /**
- * Akun default lokal (tanpa menyimpan plain text password di localStorage demi keamanan)
+ * Akun default lokal (hanya metadata profil tanpa password)
  */
 export const DEFAULT_ACCOUNTS: UserAccount[] = [
   {
@@ -25,30 +25,6 @@ export const DEFAULT_ACCOUNTS: UserAccount[] = [
     status: 'Online',
     createdAt: '2026-01-01T00:00:00.000Z',
   },
-  {
-    id: 'user-default-admin-2',
-    username: 'admin',
-    fullName: 'Admin Pengelola',
-    role: 'ADMIN',
-    status: 'Online',
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'user-default-kasir-1',
-    username: 'kasir1',
-    fullName: 'Siti Rahmawati',
-    role: 'KASIR',
-    status: 'Online',
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'user-kasir-nabil',
-    username: 'nabil@gmail.com',
-    fullName: 'Nabil',
-    role: 'KASIR',
-    status: 'Online',
-    createdAt: '2026-10-31T00:00:00.000Z',
-  },
 ];
 
 /**
@@ -58,21 +34,17 @@ export function getStoredUsers(): UserAccount[] {
   try {
     const raw = localStorage.getItem(USERS_STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(DEFAULT_ACCOUNTS));
       return DEFAULT_ACCOUNTS;
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(DEFAULT_ACCOUNTS));
       return DEFAULT_ACCOUNTS;
     }
-    // Hapus properti password jika pernah tersimpan di cache lama
     return parsed.map((u) => {
       const { password, ...safeUser } = u;
       return safeUser;
     });
-  } catch (err) {
-    console.error('Gagal membaca data akun pengguna:', err);
+  } catch {
     return DEFAULT_ACCOUNTS;
   }
 }
@@ -89,48 +61,83 @@ export function saveStoredUsers(users: UserAccount[]): void {
 }
 
 /**
- * Sinkronisasi akun dengan Supabase
+ * Resolusi role pengguna dengan prinsip Least Privilege (Deny-by-default untuk non-ADMIN).
+ * Prioritas utama dari tabel public.users, fallback ke user_metadata jika eksplisit ADMIN.
  */
-export async function syncUsersWithSupabase(): Promise<UserAccount[]> {
-  const localUsers = getStoredUsers();
-  if (!isSupabaseConfigured()) return localUsers;
+async function resolveVerifiedUserRole(authUser: {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, any>;
+}): Promise<{ role: UserRole | null; fullName: string; status?: 'Online' | 'Sibuk' | 'Istirahat' }> {
+  let resolvedRole: UserRole | null = null;
+  let resolvedStatus: 'Online' | 'Sibuk' | 'Istirahat' | undefined;
+  let fullName: string =
+    authUser.user_metadata?.full_name ||
+    authUser.email?.split('@')[0] ||
+    'Pengelola';
 
   try {
-    const { data, error } = await supabase.from('users').select('*');
-    if (error) {
-      console.warn('⚠️ [Supabase] Info: Tabel users belum ada atau query select error:', error.message);
-      return localUsers;
+    // 1. Cek berdasarkan UUID authUser.id
+    let { data: dbUser } = await supabase
+      .from('users')
+      .select('role, full_name, account_status')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    // 2. Fallback: jika tabel public.users di-seed dengan UUID berbeda, cocokkan berdasarkan email / username
+    if (!dbUser && authUser.email) {
+      const emailLower = authUser.email.toLowerCase();
+      const byEmail = await supabase
+        .from('users')
+        .select('role, full_name, account_status')
+        .ilike('username', emailLower)
+        .maybeSingle();
+      dbUser = byEmail.data;
+
+      if (!dbUser && emailLower.endsWith('@seblak48.id')) {
+        const shortUser = emailLower.split('@')[0];
+        const byShort = await supabase
+          .from('users')
+          .select('role, full_name, account_status')
+          .ilike('username', shortUser)
+          .maybeSingle();
+        dbUser = byShort.data;
+      }
     }
 
-    if (data && data.length > 0) {
-      const merged: UserAccount[] = [...localUsers];
-      for (const row of data) {
-        const exists = merged.find(
-          (u) => u.username.toLowerCase() === row.username.toLowerCase() || u.id === row.id
-        );
-        if (!exists) {
-          merged.push({
-            id: row.id,
-            username: row.username,
-            fullName: row.full_name,
-            role: row.role as UserRole,
-            status: row.account_status,
-            createdAt: row.created_at || new Date().toISOString(),
-          });
-        }
+    if (dbUser) {
+      if (dbUser.role === 'ADMIN' || dbUser.role === 'KASIR') {
+        resolvedRole = dbUser.role;
       }
-      saveStoredUsers(merged);
-      return merged;
+      if (dbUser.full_name) {
+        fullName = dbUser.full_name;
+      }
+      if (
+        dbUser.account_status === 'Online' ||
+        dbUser.account_status === 'Sibuk' ||
+        dbUser.account_status === 'Istirahat'
+      ) {
+        resolvedStatus = dbUser.account_status;
+      }
     }
-    return localUsers;
-  } catch (e) {
-    console.warn('⚠️ [Supabase] Error sync users:', e);
-    return localUsers;
+  } catch {
+    // Lanjut cek metadata eksplisit
   }
+
+  // Fallback ke metadata HANYA jika belum ditemukan di public.users dan bernilai eksplisit
+  if (!resolvedRole) {
+    const metaRole = String(authUser.user_metadata?.role || '').toUpperCase();
+    if (metaRole === 'ADMIN' || metaRole === 'KASIR') {
+      resolvedRole = metaRole as UserRole;
+    }
+  }
+
+  return { role: resolvedRole, fullName, status: resolvedStatus };
 }
 
 /**
- * Verifikasi login untuk Admin Panel menggunakan Supabase Auth (atau fallback offline)
+ * Verifikasi login untuk Admin Panel menggunakan Supabase Auth Resmi.
+ * Tanpa hardcoded password backdoor pada environment cloud/production.
  */
 export async function verifyAdminLogin(
   usernameOrEmail: string,
@@ -143,7 +150,7 @@ export async function verifyAdminLogin(
     return { success: false, error: 'Email dan kata sandi wajib diisi.' };
   }
 
-  // JIKA SUPABASE TERHUBUNG: Gunakan Supabase Auth Resmi (Bcrypt Hash di Cloud Server)
+  // 1. JIKA SUPABASE TERHUBUNG: Wajib autentikasi via Supabase Auth (JWT + Bcrypt)
   if (isSupabaseConfigured()) {
     const emailToAuth = normalizeAuthEmail(cleanUser);
 
@@ -153,204 +160,142 @@ export async function verifyAdminLogin(
         password: cleanPass,
       });
 
-      if (error) {
-        // Fallback Darurat: Jika pengguna memasukkan kredensial admin bawaan, izinkan masuk agar tidak terkunci
-        const isEmergencyAdmin =
-          (cleanUser.toLowerCase() === 'admin@seblak48.id' ||
-            cleanUser.toLowerCase() === 'admin' ||
-            cleanUser.toLowerCase() === 'owner@seblak48.id') &&
-          (cleanPass === 'seblak48admin' || cleanPass === 'seblak48');
-
-        if (isEmergencyAdmin) {
-          console.warn('⚠️ [Auth] Menggunakan mode darurat lokal karena akun Supabase belum aktif/dikonfirmasi.');
-          return {
-            success: true,
-            user: {
-              id: 'user-default-admin',
-              username: cleanUser,
-              fullName: 'Administrator (Mode Darurat)',
-              role: 'ADMIN',
-              status: 'Online',
-              createdAt: new Date().toISOString(),
-            },
-          };
-        }
-
-        if (
-          error.message.includes('Invalid login credentials') ||
-          error.message.includes('invalid_grant')
-        ) {
+      if (error || !data?.user) {
+        if (error?.message?.includes('Email not confirmed')) {
           return {
             success: false,
             error:
-              'Kredensial belum aktif atau belum dikonfirmasi di Supabase. Anda dapat menggunakan akun darurat (admin@seblak48.id / seblak48admin) atau klik "Confirm user" di Supabase Dashboard -> Auth -> Users.',
+              'Email akun belum dikonfirmasi. Silakan konfirmasi pengguna melalui Supabase Dashboard -> Authentication -> Users.',
           };
         }
-        if (error.message.includes('Email not confirmed')) {
-          return {
-            success: false,
-            error:
-              'Email akun belum dikonfirmasi di Supabase. Silakan buka Supabase Dashboard -> Auth -> Users untuk mengonfirmasi (klik titik tiga ... -> Confirm user).',
-          };
-        }
+        // Pesan generik yang aman (mencegah User Enumeration & Credential Leak)
         return {
           success: false,
-          error: `Gagal autentikasi Supabase: ${error.message}`,
+          error: 'Email atau kata sandi pengelola tidak valid.',
         };
       }
 
-      if (data?.user) {
-        let userRole: UserRole =
-          (data.user.user_metadata?.role as UserRole) || 'ADMIN';
-        let fullName: string =
-          data.user.user_metadata?.full_name ||
-          data.user.email?.split('@')[0] ||
-          'Administrator';
+      const { role: userRole, fullName } = await resolveVerifiedUserRole(data.user);
 
-        // Sinkronisasi data detail dari tabel public.users jika ada
-        try {
-          const { data: dbUser } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', data.user.id)
-            .maybeSingle();
-
-          if (dbUser) {
-            userRole = (dbUser.role as UserRole) || userRole;
-            fullName = dbUser.full_name || fullName;
-          }
-        } catch (_) {}
-
-        if (userRole !== 'ADMIN') {
-          await supabase.auth.signOut();
-          return {
-            success: false,
-            error: `Akun "${data.user.email}" memiliki hak akses KASIR. Portal ini khusus untuk ADMIN.`,
-          };
-        }
-
-        const authenticatedUser: UserAccount = {
-          id: data.user.id,
-          username: data.user.email || cleanUser,
-          fullName,
-          role: userRole,
-          status: 'Online',
-          createdAt: data.user.created_at,
-        };
-
-        // Simpan profile ke daftar user lokal
-        const localList = getStoredUsers();
-        if (!localList.some((u) => u.id === authenticatedUser.id)) {
-          saveStoredUsers([...localList, authenticatedUser]);
-        }
-
+      if (userRole !== 'ADMIN') {
+        await supabase.auth.signOut();
         return {
-          success: true,
-          user: authenticatedUser,
+          success: false,
+          error: 'Akses ditolak. Akun ini tidak memiliki otorisasi sebagai Administrator.',
         };
       }
-    } catch (err: any) {
-      console.error('Error saat menghubungi Supabase Auth:', err);
+
+      const authenticatedUser: UserAccount = {
+        id: data.user.id,
+        username: data.user.email || emailToAuth,
+        fullName,
+        role: 'ADMIN',
+        status: 'Online',
+        createdAt: data.user.created_at,
+      };
+
+      const localList = getStoredUsers();
+      if (!localList.some((u) => u.id === authenticatedUser.id)) {
+        saveStoredUsers([...localList, authenticatedUser]);
+      }
+
+      return {
+        success: true,
+        user: authenticatedUser,
+      };
+    } catch {
       return {
         success: false,
-        error: `Koneksi ke Supabase Auth gagal: ${err?.message || err}`,
+        error: 'Gagal terhubung ke layanan autentikasi server. Periksa koneksi internet Anda.',
       };
     }
   }
 
-  // JIKA OFFLINE (Kredensial belum dipasang di .env): Mode Demo Lokal Terbatas
-  const isHardcodedAdmin =
-    (cleanUser.toLowerCase() === 'admin@seblak48.id' ||
-      cleanUser.toLowerCase() === 'admin' ||
-      cleanUser.toLowerCase() === 'owner@seblak48.id') &&
-    (cleanPass === 'seblak48admin' || cleanPass === 'seblak48');
-
-  if (isHardcodedAdmin) {
+  // 2. JIKA SUPABASE BELUM DIKONFIGURASI:
+  // Di Production Build (Vercel), tolak login sepenuhnya agar tidak ada celah bypass tanpa backend.
+  if (!import.meta.env.DEV) {
     return {
-      success: true,
-      user: {
-        id: 'user-default-admin',
-        username: cleanUser,
-        fullName: 'Administrator (Offline Fallback)',
-        role: 'ADMIN',
-        status: 'Online',
-        createdAt: new Date().toISOString(),
-      },
+      success: false,
+      error:
+        'Konfigurasi server autentikasi (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY) belum diatur pada environment hosting.',
     };
   }
 
   return {
     success: false,
-    error: 'Email atau kata sandi pengelola salah!',
+    error:
+      'Supabase belum terkonfigurasi pada environment lokal. Pastikan variabel VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY telah diatur.',
   };
 }
 
 /**
- * Periksa apakah ada sesi aktif di Supabase Auth (untuk auto-login saat refresh)
+ * Periksa apakah ada sesi JWT aktif & valid di Supabase Auth (untuk auto-login saat refresh).
+ * Tidak pernah mempercayai sessionStorage semata tanpa sesi kriptografis Supabase.
  */
 export async function checkAdminSession(): Promise<{
   isAuthenticated: boolean;
   user?: UserAccount;
 }> {
-  if (isSupabaseConfigured()) {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        let userRole: UserRole =
-          (session.user.user_metadata?.role as UserRole) || 'ADMIN';
-        let fullName: string =
-          session.user.user_metadata?.full_name ||
-          session.user.email?.split('@')[0] ||
-          'Administrator';
-
-        try {
-          const { data: dbUser } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .maybeSingle();
-
-          if (dbUser) {
-            userRole = (dbUser.role as UserRole) || userRole;
-            fullName = dbUser.full_name || fullName;
-          }
-        } catch (_) {}
-
-        if (userRole === 'ADMIN') {
-          return {
-            isAuthenticated: true,
-            user: {
-              id: session.user.id,
-              username: session.user.email || 'admin',
-              fullName,
-              role: userRole,
-              status: 'Online',
-              createdAt: session.user.created_at,
-            },
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('Gagal memverifikasi sesi Supabase:', err);
-    }
+  if (!isSupabaseConfigured()) {
+    sessionStorage.removeItem('seblak48_admin_session');
+    return { isAuthenticated: false };
   }
 
-  // Fallback sessionStorage
-  const isLocalSession = sessionStorage.getItem('seblak48_admin_session') === 'true';
-  return { isAuthenticated: isLocalSession };
+  try {
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
+
+    if (error || !session?.user) {
+      sessionStorage.removeItem('seblak48_admin_session');
+      return { isAuthenticated: false };
+    }
+
+    // Validasi ulang token ke server Supabase Auth untuk memastikan sesi belum dicabut
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    const verifiedUser = userData?.user || session.user;
+    if (userErr || !verifiedUser) {
+      sessionStorage.removeItem('seblak48_admin_session');
+      return { isAuthenticated: false };
+    }
+
+    const { role: userRole, fullName } = await resolveVerifiedUserRole(verifiedUser);
+
+    if (userRole !== 'ADMIN') {
+      await supabase.auth.signOut();
+      sessionStorage.removeItem('seblak48_admin_session');
+      return { isAuthenticated: false };
+    }
+
+    sessionStorage.setItem('seblak48_admin_session', 'true');
+    return {
+      isAuthenticated: true,
+      user: {
+        id: verifiedUser.id,
+        username: verifiedUser.email || 'admin',
+        fullName,
+        role: 'ADMIN',
+        status: 'Online',
+        createdAt: verifiedUser.created_at,
+      },
+    };
+  } catch {
+    sessionStorage.removeItem('seblak48_admin_session');
+    return { isAuthenticated: false };
+  }
 }
 
 /**
- * Logout admin dari Supabase Auth dan bersihkan sesi browser
+ * Logout admin dari Supabase Auth dan bersihkan seluruh jejak sesi lokal
  */
 export async function logoutAdmin(): Promise<void> {
   if (isSupabaseConfigured()) {
     try {
       await supabase.auth.signOut();
-    } catch (err) {
-      console.warn('Gagal sign out dari Supabase:', err);
+    } catch {
+      // Abaikan kegagalan jaringan saat sign out
     }
   }
   sessionStorage.removeItem('seblak48_admin_session');
 }
-

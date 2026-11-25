@@ -28,7 +28,7 @@ function thermalPrintApiPlugin(): Plugin {
           const tempFile = path.join(os.tmpdir(), `receipt_${Date.now()}_${Math.random().toString(36).substring(7)}.json`);
           fs.writeFileSync(tempFile, JSON.stringify(payload), 'utf8');
 
-          const scriptPath = path.resolve(__dirname, 'scripts', 'print_receipt.ps1');
+          const scriptPath = path.resolve(import.meta.dirname, 'scripts', 'print_receipt.ps1');
           execFile('powershell', ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-JsonPath', tempFile], (error, stdout, stderr) => {
             try { fs.unlinkSync(tempFile); } catch (_) {}
             
@@ -82,28 +82,27 @@ function thermalPrintApiPlugin(): Plugin {
   };
 }
 
-export default defineConfig(() => {
-  return {
-    plugins: [react(), tailwindcss(), thermalPrintApiPlugin()],
-    envPrefix: ['VITE_', 'SUPABASE_', 'NEXT_PUBLIC_', 'ANON_'],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+export default defineConfig({
+  plugins: [react(), tailwindcss(), thermalPrintApiPlugin()],
+  // Hanya ekspos variabel berprefiks VITE_ ke bundle publik (mencegah kebocoran SUPABASE_SERVICE_ROLE_KEY)
+  envPrefix: ['VITE_'],
+  resolve: {
+    alias: {
+      '@': path.resolve(import.meta.dirname, '.'),
     },
-    server: {
-      host: '0.0.0.0',
-      allowedHosts: true,
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
-    },
-    preview: {
-      port: 3001,
-      host: '0.0.0.0',
-      allowedHosts: true,
-    },
-  };
+  },
+  server: {
+    host: '0.0.0.0',
+    allowedHosts: true,
+    // HMR is disabled in AI Studio via DISABLE_HMR env var.
+    // Do not modify—file watching is disabled to prevent flickering during agent edits.
+    hmr: process.env.DISABLE_HMR !== 'true',
+    // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
+    watch: process.env.DISABLE_HMR === 'true' ? null : {},
+  },
+  preview: {
+    port: 3001,
+    host: '0.0.0.0',
+    allowedHosts: true,
+  },
 });

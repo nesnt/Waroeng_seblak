@@ -4,6 +4,16 @@
  */
 
 const GAS_UPLOAD_URL = import.meta.env.VITE_GOOGLE_APPS_SCRIPT_URL || '';
+const UPLOAD_SECRET_TOKEN = import.meta.env.VITE_GOOGLE_UPLOAD_TOKEN || '';
+
+export const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024; // Maksimal 2 MB
+export const ALLOWED_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+];
 
 /**
  * Cek apakah endpoint Google Apps Script sudah dikonfigurasi di .env
@@ -11,18 +21,46 @@ const GAS_UPLOAD_URL = import.meta.env.VITE_GOOGLE_APPS_SCRIPT_URL || '';
 export function isDriveUploadConfigured(): boolean {
   return Boolean(
     GAS_UPLOAD_URL &&
-    GAS_UPLOAD_URL.startsWith('http') &&
-    GAS_UPLOAD_URL.includes('script.google.com')
+      GAS_UPLOAD_URL.startsWith('https://') &&
+      GAS_UPLOAD_URL.includes('script.google.com')
   );
 }
 
 /**
+ * Validasi keamanan file gambar sebelum pratinjau atau unggah (Mencegah SVG XSS & Storage DoS)
+ */
+export function validateImageFile(file: File): { valid: boolean; error?: string } {
+  if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.type.toLowerCase())) {
+    return {
+      valid: false,
+      error: 'Format file tidak didukung. Gunakan foto berformat JPG, PNG, WEBP, atau GIF.',
+    };
+  }
+
+  if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+    return {
+      valid: false,
+      error: `Ukuran foto terlalu besar (${sizeMb} MB). Maksimal ukuran foto adalah 2 MB.`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
  * Helper: Mengonversi berbagai format link share Google Drive menjadi direct display URL
- * Format keluaran: https://lh3.googleusercontent.com/d/{FILE_ID}
+ * sekaligus memvalidasi protokol URL agar aman dari skema berbahaya (javascript:, data:text/html, dll).
  */
 export function formatGoogleDriveDirectUrl(url: string): string {
   if (!url || typeof url !== 'string') return '';
   const trimmed = url.trim();
+  if (!trimmed) return '';
+
+  // Tolak skema berbahaya (hanya izinkan http:// atau https:// untuk input URL eksternal)
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return '';
+  }
 
   // Pola 1: https://drive.google.com/file/d/{FILE_ID}/view...
   const matchFileD = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
@@ -55,10 +93,19 @@ export interface UploadResult {
  * Mengunggah file gambar ke Google Drive dan mengembalikan direct link URL
  */
 export async function uploadImageToGoogleDrive(file: File): Promise<UploadResult> {
+  const validation = validateImageFile(file);
+  if (!validation.valid) {
+    return {
+      success: false,
+      error: validation.error,
+    };
+  }
+
   if (!isDriveUploadConfigured()) {
     return {
       success: false,
-      error: 'VITE_GOOGLE_APPS_SCRIPT_URL belum diatur di file .env. Silakan atur URL Web App Google Apps Script.',
+      error:
+        'VITE_GOOGLE_APPS_SCRIPT_URL belum diatur. Silakan atur URL Web App Google Apps Script atau gunakan link gambar eksternal.',
     };
   }
 
@@ -67,19 +114,25 @@ export async function uploadImageToGoogleDrive(file: File): Promise<UploadResult
     reader.onload = async () => {
       try {
         const base64Data = reader.result as string;
-        const cleanFileName = `topping_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const safeExt = file.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'jpg';
+        const cleanFileName = `img_${Date.now()}.${safeExt.slice(0, 5)}`;
 
-        // Kirim dengan Content-Type: text/plain agar browser tidak melakukan CORS preflight OPTIONS request
+        const payload: Record<string, string> = {
+          fileName: cleanFileName,
+          mimeType: file.type,
+          base64: base64Data,
+        };
+        if (UPLOAD_SECRET_TOKEN) {
+          payload.token = UPLOAD_SECRET_TOKEN;
+        }
+
+        // Kirim dengan Content-Type: text/plain agar kompatibel dengan CORS Google Apps Script
         const res = await fetch(GAS_UPLOAD_URL, {
           method: 'POST',
           headers: {
             'Content-Type': 'text/plain;charset=utf-8',
           },
-          body: JSON.stringify({
-            fileName: cleanFileName,
-            mimeType: file.type || 'image/jpeg',
-            base64: base64Data,
-          }),
+          body: JSON.stringify(payload),
         });
 
         if (!res.ok) {
@@ -88,7 +141,7 @@ export async function uploadImageToGoogleDrive(file: File): Promise<UploadResult
 
         const data = await res.json();
 
-        if (data.status === 'success' && data.imageUrl) {
+        if (data.status === 'success' && data.imageUrl && /^https:\/\//i.test(data.imageUrl)) {
           resolve({
             success: true,
             imageUrl: data.imageUrl,
@@ -101,7 +154,6 @@ export async function uploadImageToGoogleDrive(file: File): Promise<UploadResult
           });
         }
       } catch (err: any) {
-        console.error('⚠️ [DriveUpload] Terjadi kesalahan saat upload:', err);
         resolve({
           success: false,
           error: err.message || 'Terjadi kesalahan jaringan saat mengunggah ke Google Drive.',
@@ -109,7 +161,7 @@ export async function uploadImageToGoogleDrive(file: File): Promise<UploadResult
       }
     };
 
-    reader.onerror = (e) => {
+    reader.onerror = () => {
       resolve({
         success: false,
         error: 'Gagal membaca file gambar lokal.',

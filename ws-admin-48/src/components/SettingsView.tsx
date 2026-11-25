@@ -14,7 +14,7 @@ import {
 
 interface SettingsViewProps {
   settings: StoreSettings;
-  onSaveSettings: (settings: StoreSettings) => void;
+  onSaveSettings: (settings: StoreSettings, syncStoreProfile?: boolean) => void;
   onResetAllData: () => void;
   onClearAllData: () => void;
 }
@@ -35,32 +35,50 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Reset confirmation modals
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const [clearConfirmPhrase, setClearConfirmPhrase] = useState('');
+
+  // Sinkronkan input form jika profil toko baru selesai dimuat dari Supabase
+  React.useEffect(() => {
+    setStoreName(settings.storeName);
+    setSlogan(settings.slogan);
+    setAddress(settings.address);
+    setPhone(settings.phone);
+  }, [settings.storeName, settings.slogan, settings.address, settings.phone]);
 
   const handleSaveStoreProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveSettings({
-      ...settings,
-      storeName: storeName.trim(),
-      slogan: slogan.trim(),
-      address: address.trim(),
-      phone: phone.trim(),
-    });
+    onSaveSettings(
+      {
+        ...settings,
+        storeName: storeName.trim(),
+        slogan: slogan.trim(),
+        address: address.trim(),
+        phone: phone.trim(),
+      },
+      true
+    );
     setShowSavedToast(true);
     setTimeout(() => setShowSavedToast(false), 3000);
   };
 
   const handleToggleTheme = () => {
-    onSaveSettings({
-      ...settings,
-      isDarkMode: !settings.isDarkMode,
-    });
+    onSaveSettings(
+      {
+        ...settings,
+        isDarkMode: !settings.isDarkMode,
+      },
+      false
+    );
   };
 
   const handleSetTextScale = (scale: TextScale) => {
-    onSaveSettings({
-      ...settings,
-      textScale: scale,
-    });
+    onSaveSettings(
+      {
+        ...settings,
+        textScale: scale,
+      },
+      false
+    );
   };
 
   return (
@@ -231,24 +249,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* 3. Pengelolaan Data: Kosongkan Data vs Muat Data Contoh */}
       <div className="space-y-3">
-        {/* Opsi 1: Kosongkan Semua Data Dummy (Mulai dari Nol) */}
+        {/* Opsi 1: Reset Database Operasional (Dilindungi Konfirmasi Ketat) */}
         <div className="bg-red-50/70 dark:bg-red-950/25 rounded-2xl p-5 border border-dashed border-red-300 dark:border-red-900/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h4 className="font-bold text-sm text-red-900 dark:text-red-200 flex items-center gap-1.5">
               <Trash2 className="w-4 h-4 text-red-600" />
-              Kosongkan Semua Data Dummy (Mulai dari Nol)
+              Zona Bahaya: Kosongkan Seluruh Data Database (Cloud &amp; Lokal)
             </h4>
             <p className="text-xs text-red-700/80 dark:text-red-300/70 mt-0.5">
-              Hapus seluruh daftar barang contoh, menu, dan riwayat transaksi sehingga Anda dapat mulai menginput data asli toko.
+              <strong>PERINGATAN:</strong> Tindakan ini akan menghapus permanen seluruh stok bahan, menu, dan riwayat transaksi di Supabase Cloud. Gunakan hanya sebelum warung mulai beroperasi perdana!
             </p>
           </div>
           <button
             type="button"
-            onClick={() => setIsClearConfirmOpen(true)}
+            onClick={() => {
+              setClearConfirmPhrase('');
+              setIsClearConfirmOpen(true);
+            }}
             className="py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition cursor-pointer shadow-xs shrink-0 flex items-center gap-1.5"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>Kosongkan Data</span>
+            <span>Kosongkan Database</span>
           </button>
         </div>
 
@@ -273,33 +294,50 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL: Konfirmasi Kosongkan Semua Data */}
+      {/* MODAL: Konfirmasi Kosongkan Semua Data (Wajib Ketik Frasa Pengaman) */}
       {isClearConfirmOpen && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white dark:bg-stone-900 rounded-2xl max-w-sm w-full border border-stone-200 dark:border-stone-800 p-5 space-y-4 shadow-2xl">
             <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
               <Trash2 className="w-5 h-5" />
             </div>
-            <div className="text-center space-y-1">
+            <div className="text-center space-y-1.5">
               <h4 className="font-bold text-base text-stone-900 dark:text-stone-100">
-                Kosongkan Seluruh Data?
+                Hapus Permanen Seluruh Database?
               </h4>
-              <p className="text-xs text-stone-500">
-                Semua daftar bahan baku, menu, dan riwayat transaksi dummy akan direset menjadi <strong>0 (kosong)</strong>.
+              <p className="text-xs text-stone-500 leading-relaxed">
+                Seluruh stok bahan, menu, dan riwayat transaksi asli di <strong>Supabase Cloud</strong> akan dihapus permanen dan tidak bisa dikembalikan.
               </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300 block">
+                Ketik <code className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 font-black">HAPUS PERMANEN</code> untuk melanjutkan:
+              </label>
+              <input
+                type="text"
+                value={clearConfirmPhrase}
+                onChange={(e) => setClearConfirmPhrase(e.target.value)}
+                placeholder="HAPUS PERMANEN"
+                className="w-full text-xs px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-red-500 font-bold"
+              />
             </div>
             <div className="flex gap-2">
               <button
+                disabled={clearConfirmPhrase.trim() !== 'HAPUS PERMANEN'}
                 onClick={() => {
                   onClearAllData();
+                  setClearConfirmPhrase('');
                   setIsClearConfirmOpen(false);
                 }}
-                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs cursor-pointer shadow-md"
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs cursor-pointer shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Ya, Kosongkan
+                Ya, Hapus Semua
               </button>
               <button
-                onClick={() => setIsClearConfirmOpen(false)}
+                onClick={() => {
+                  setClearConfirmPhrase('');
+                  setIsClearConfirmOpen(false);
+                }}
                 className="flex-1 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs cursor-pointer"
               >
                 Batal

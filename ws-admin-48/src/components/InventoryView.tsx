@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Ingredient, IngredientCategory, StockLog } from '../types';
 import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
-import { getStockLogs, fetchStockLogsFromSupabase } from '../services/storage';
+import { getStockLogs, fetchStockLogsFromSupabase, generateUuid } from '../services/storage';
 import { IngredientImage } from './IngredientIllustration';
 import {
   Search,
@@ -25,6 +25,7 @@ import {
   uploadImageToGoogleDrive,
   formatGoogleDriveDirectUrl,
   isDriveUploadConfigured,
+  validateImageFile,
 } from '../services/driveUpload';
 
 interface InventoryViewProps {
@@ -78,15 +79,24 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     }
   }, [targetQuickRestockId, ingredients, onClearTargetQuickRestock]);
 
-  const categories: (IngredientCategory | 'Semua')[] = [
-    'Semua',
+  const defaultCategories: IngredientCategory[] = [
     'Kerupuk',
+    'Topping & Baso',
     'Frozen Food',
     'Keringan',
     'Daging',
+    'Sayuran & Telur',
+    'Bumbu & Kuah',
+    'Mie & Pasta',
     'Minuman',
     'Special',
   ];
+
+  const categories: (IngredientCategory | 'Semua')[] = useMemo(() => {
+    const dynamic = Array.from(new Set(ingredients.map((i) => i.category).filter(Boolean)));
+    const combined = Array.from(new Set([...dynamic, ...defaultCategories]));
+    return ['Semua', ...combined];
+  }, [ingredients]);
 
   // Filtering
   const filteredIngredients = useMemo(() => {
@@ -751,6 +761,7 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
     ingredient?.lastPurchasePrice || 1000
   );
   const [imageUrl, setImageUrl] = useState<string>(ingredient?.imageUrl || '');
+  const [previewDataUrl, setPreviewDataUrl] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -760,25 +771,57 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const check = validateImageFile(file);
+    if (!check.valid) {
+      setUploadError(check.error || 'File gambar tidak valid.');
+      setSelectedFile(null);
+      setPreviewDataUrl('');
+      e.target.value = '';
+      return;
+    }
+
+    if (!isDriveUploadConfigured()) {
+      setUploadError(
+        'Fitur unggah langsung belum aktif (VITE_GOOGLE_APPS_SCRIPT_URL belum diatur). Silakan tempel Link URL Foto di bawah atau gunakan ilustrasi bawaan.'
+      );
+      setSelectedFile(null);
+      setPreviewDataUrl('');
+      e.target.value = '';
+      return;
+    }
+
     setUploadError(null);
     setSelectedFile(file);
 
-    // Baca file secara lokal HANYA untuk pratinjau di layar modal
-    // (Foto BELUM diunggah ke Google Drive sampai tombol 'Simpan Bahan' ditekan)
+    // Baca file secara lokal HANYA untuk pratinjau sementara (tidak disimpan sebagai Base64 ke DB)
     const reader = new FileReader();
     reader.onloadend = () => {
       if (typeof reader.result === 'string') {
-        setImageUrl(reader.result);
-        setUploadSuccess(`Foto "${file.name}" dipilih. Foto akan diunggah saat Anda klik Simpan Bahan.`);
+        setPreviewDataUrl(reader.result);
+        setUploadSuccess(`Foto "${file.name}" siap diunggah saat Anda klik Simpan Bahan.`);
       }
     };
     reader.readAsDataURL(file);
   };
 
   const handleUrlInput = (val: string) => {
-    // Otomatis ubah link sharing Google Drive menjadi Direct CDN URL
-    const formatted = formatGoogleDriveDirectUrl(val);
+    const trimmed = val.trim();
+    if (!trimmed) {
+      setImageUrl('');
+      setPreviewDataUrl('');
+      setSelectedFile(null);
+      setUploadError(null);
+      setUploadSuccess(null);
+      return;
+    }
+    const formatted = formatGoogleDriveDirectUrl(trimmed);
+    if (!formatted) {
+      setImageUrl(trimmed);
+      setUploadError('Link foto harus diawali dengan https:// atau http://');
+      return;
+    }
     setImageUrl(formatted);
+    setPreviewDataUrl('');
     setSelectedFile(null);
     setUploadError(null);
     setUploadSuccess(null);
@@ -789,9 +832,18 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
     if (!name.trim()) return;
 
     let finalImageUrl = imageUrl.trim();
+    if (finalImageUrl && !/^https?:\/\//i.test(finalImageUrl)) {
+      setUploadError('Link foto tidak valid. Gunakan URL yang diawali https:// atau kosongkan.');
+      return;
+    }
 
-    // HANYA UNGGAH KE GOOGLE DRIVE JIKA ADA FILE BARU YANG DIPILIH
-    if (selectedFile && isDriveUploadConfigured()) {
+    if (selectedFile) {
+      if (!isDriveUploadConfigured()) {
+        setUploadError(
+          'VITE_GOOGLE_APPS_SCRIPT_URL belum diatur. Hapus pilihan file lokal atau tempel link URL foto.'
+        );
+        return;
+      }
       setIsSaving(true);
       setUploadError(null);
       setUploadSuccess(null);
@@ -802,7 +854,7 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
         } else {
           setUploadError(res.error || 'Gagal mengunggah foto ke Google Drive.');
           setIsSaving(false);
-          return; // Hentikan penyimpanan agar user dapat memeriksa atau mencoba lagi
+          return;
         }
       } catch (err: any) {
         setUploadError(err.message || 'Terjadi kesalahan saat mengunggah foto ke Google Drive.');
@@ -814,7 +866,7 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
     }
 
     onSave({
-      id: ingredient?.id || `ing-${Date.now()}`,
+      id: ingredient?.id || generateUuid(),
       name: name.trim(),
       category,
       currentStock,
@@ -847,11 +899,12 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
                 <ImageIcon className="w-3.5 h-3.5 text-orange-600" />
                 Gambar Bahan
               </span>
-              {imageUrl && (
+              {(imageUrl || previewDataUrl) && (
                 <button
                   type="button"
                   onClick={() => {
                     setImageUrl('');
+                    setPreviewDataUrl('');
                     setSelectedFile(null);
                     setUploadSuccess(null);
                     setUploadError(null);
@@ -867,7 +920,7 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
               <IngredientImage
                 name={name || 'Bahan Seblak'}
                 category={category}
-                imageUrl={imageUrl}
+                imageUrl={previewDataUrl || imageUrl}
                 className="w-full h-full object-cover"
               />
               {selectedFile ? (
@@ -951,12 +1004,25 @@ const IngredientFormModal: React.FC<IngredientFormModalProps> = ({
                 onChange={(e) => setCategory(e.target.value as IngredientCategory)}
                 className="w-full text-xs px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:border-orange-500"
               >
-                <option value="Kerupuk">Kerupuk</option>
-                <option value="Frozen Food">Frozen Food</option>
-                <option value="Keringan">Keringan</option>
-                <option value="Daging">Daging</option>
-                <option value="Minuman">Minuman</option>
-                <option value="Special">Special</option>
+                {Array.from(
+                  new Set([
+                    ...(ingredient?.category ? [ingredient.category] : []),
+                    'Kerupuk',
+                    'Topping & Baso',
+                    'Frozen Food',
+                    'Keringan',
+                    'Daging',
+                    'Sayuran & Telur',
+                    'Bumbu & Kuah',
+                    'Mie & Pasta',
+                    'Minuman',
+                    'Special',
+                  ])
+                ).map((catOpt) => (
+                  <option key={catOpt} value={catOpt}>
+                    {catOpt}
+                  </option>
+                ))}
               </select>
             </div>
             <div>

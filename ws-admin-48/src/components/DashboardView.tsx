@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Ingredient, Transaction, MenuItem } from '../types';
-import { formatRupiah, formatShortDate } from '../utils/formatters';
+import { formatRupiah, formatShortDate, toLocalDateKey } from '../utils/formatters';
 import { ChartComponent } from './ChartComponent';
 import { IngredientImage } from './IngredientIllustration';
 import {
@@ -43,49 +43,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Waktu hari ini (format YYYY-MM-DD zona waktu lokal)
   const localTodayStr = useMemo(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return toLocalDateKey(new Date());
   }, []);
+
+  // Hanya hitung transaksi yang selesai (kecualikan transaksi berstatus 'Batal')
+  const validTransactions = useMemo(() => {
+    return transactions.filter((t) => t.status !== 'Batal');
+  }, [transactions]);
 
   // Transaksi hari ini
   const todayTransactions = useMemo(() => {
-    const matchesToday = transactions.filter((t) => {
+    const matchesToday = validTransactions.filter((t) => {
       if (!t.date) return false;
-      const txLocal = new Date(t.date);
-      const y = txLocal.getFullYear();
-      const m = String(txLocal.getMonth() + 1).padStart(2, '0');
-      const d = String(txLocal.getDate()).padStart(2, '0');
-      const f = `${y}-${m}-${d}`;
-      return f === localTodayStr || t.date.startsWith(localTodayStr);
+      return toLocalDateKey(t.date) === localTodayStr;
     });
 
     if (matchesToday.length > 0) return matchesToday;
 
     // Jika belum ada transaksi pada tanggal hari ini, gunakan tanggal transaksi terbaru
-    if (transactions.length > 0 && transactions[0].date) {
-      const anchorDate = transactions[0].date.split('T')[0];
-      return transactions.filter((t) => t.date && t.date.startsWith(anchorDate));
+    if (validTransactions.length > 0 && validTransactions[0].date) {
+      const anchorDate = toLocalDateKey(validTransactions[0].date);
+      return validTransactions.filter((t) => t.date && toLocalDateKey(t.date) === anchorDate);
     }
 
     return [];
-  }, [transactions, localTodayStr]);
+  }, [validTransactions, localTodayStr]);
 
   // Total omset hari ini
   const todayRevenue = useMemo(() => {
     return todayTransactions.reduce((acc, t) => acc + t.totalAmount, 0);
   }, [todayTransactions]);
 
-  // Transaksi kemarin untuk komparasi persentase
+  // Transaksi kemarin untuk komparasi persentase (zona waktu lokal)
   const yesterdayRevenue = useMemo(() => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yStr = yesterday.toISOString().split('T')[0];
-    const yTxs = transactions.filter((t) => t.date && t.date.startsWith(yStr));
+    const yStr = toLocalDateKey(yesterday);
+    const yTxs = validTransactions.filter((t) => t.date && toLocalDateKey(t.date) === yStr);
     return yTxs.reduce((acc, t) => acc + t.totalAmount, 0);
-  }, [transactions]);
+  }, [validTransactions]);
 
   const revenueGrowthPct = useMemo(() => {
     if (yesterdayRevenue === 0) return 0;
@@ -126,24 +122,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .slice(0, 4);
   }, [todayTransactions]);
 
-  // Data 7 hari terakhir untuk grafik omset
+  // Data 7 hari terakhir untuk grafik omset (zona waktu lokal & tanpa transaksi Batal)
   const chart7DaysData = useMemo(() => {
     const labels: string[] = [];
     const values: number[] = [];
-    const anchor = new Date(localTodayStr);
+    const now = new Date();
 
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(anchor);
-      d.setDate(anchor.getDate() - i);
-      const dStr = d.toISOString().split('T')[0];
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const dStr = toLocalDateKey(d);
 
       // Format label hari (Sen 13, Sel 14 dst)
       const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
       const label = `${dayNames[d.getDay()]} (${formatShortDate(d)})`;
       labels.push(label);
 
-      const dayRevenue = transactions
-        .filter((t) => t.date && t.date.startsWith(dStr))
+      const dayRevenue = validTransactions
+        .filter((t) => t.date && toLocalDateKey(t.date) === dStr)
         .reduce((sum, t) => sum + t.totalAmount, 0);
       values.push(dayRevenue);
     }

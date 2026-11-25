@@ -23,6 +23,7 @@ import {
   saveSettings,
   clearAllData,
   resetToDefaultData,
+  clearSensitiveLocalCache,
   fetchIngredientsFromSupabase,
   fetchMenuItemsFromSupabase,
   fetchTransactionsFromSupabase,
@@ -31,6 +32,7 @@ import {
   subscribeToTransactions,
   subscribeToMenuItems,
 } from './services/storage';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { DesktopSidebar, MobileNavigation } from './components/Navigation';
 import { DashboardView } from './components/DashboardView';
 import { InventoryView } from './components/InventoryView';
@@ -62,16 +64,15 @@ import {
 import { getRateLimitStatus, recordFailedAttempt, resetRateLimit } from './utils/authRateLimit';
 
 export default function App() {
-  // Application Data States
-  const [ingredients, setIngredients] = useState<Ingredient[]>(() => getIngredients());
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(() => getMenuItems());
-  const [transactions, setTransactions] = useState<Transaction[]>(() => getTransactions());
+  // Application Data States (Hanya diisi data cloud setelah autentikasi valid)
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [settings, setSettings] = useState<StoreSettings>(() => getSettings());
 
-  // UI Navigation & Auth State dengan Rate Limiting Cooldown
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return sessionStorage.getItem('seblak48_admin_session') === 'true';
-  });
+  // UI Navigation & Auth State dengan Verifikasi Sesi JWT Supabase (tanpa mempercayai sessionStorage mentah)
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isCheckingSession, setIsCheckingSession] = useState<boolean>(true);
   const [loginEmail, setLoginEmail] = useState<string>('');
   const [loginPassword, setLoginPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -96,21 +97,61 @@ export default function App() {
     return () => clearInterval(interval);
   }, [rateLimit.isLocked]);
 
-  // Ambil data live dari Supabase & pasang subscription WebSockets realtime saat aplikasi dibuka
+  // 1. Saat aplikasi pertama dibuka: Verifikasi sesi JWT Supabase & ambil HANYA profil publik toko
   useEffect(() => {
-    // Verifikasi sesi login Supabase Auth yang tersimpan (auto-login)
-    checkAdminSession().then((sessionRes) => {
-      if (sessionRes.isAuthenticated && sessionRes.user) {
-        setIsLoggedIn(true);
-        sessionStorage.setItem('seblak48_admin_session', 'true');
-        setSettings((prev) => ({
-          ...prev,
-          userName: sessionRes.user?.fullName || prev.userName,
-          userRole: 'Administrator',
-          userEmail: sessionRes.user?.username || prev.userEmail,
-        }));
-      }
+    let mounted = true;
+    fetchSettingsFromSupabase().then((s) => {
+      if (mounted) setSettings(s);
     });
+
+    checkAdminSession()
+      .then((sessionRes) => {
+        if (!mounted) return;
+        if (sessionRes.isAuthenticated && sessionRes.user) {
+          setIsLoggedIn(true);
+          setSettings((prev) => ({
+            ...prev,
+            userName: sessionRes.user?.fullName || prev.userName,
+            userRole: 'Administrator',
+            userEmail: sessionRes.user?.username || prev.userEmail,
+          }));
+        } else {
+          setIsLoggedIn(false);
+          clearSensitiveLocalCache();
+        }
+      })
+      .finally(() => {
+        if (mounted) setIsCheckingSession(false);
+      });
+
+    // Pantau perubahan status sesi auth (misal token kedaluwarsa atau sign-out dari tab lain)
+    let authSub: { unsubscribe: () => void } | null = null;
+    if (isSupabaseConfigured()) {
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_OUT' || !session) {
+          if (mounted) {
+            setIsLoggedIn(false);
+            setTransactions([]);
+            clearSensitiveLocalCache();
+          }
+        }
+      });
+      authSub = data.subscription;
+    }
+
+    return () => {
+      mounted = false;
+      authSub?.unsubscribe();
+    };
+  }, []);
+
+  // 2. HANYA SETELAH LOGIN VALID: Ambil data operasional & aktifkan Realtime WebSockets
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    setIngredients(getIngredients());
+    setMenuItems(getMenuItems());
+    setTransactions(getTransactions());
 
     fetchIngredientsFromSupabase().then(setIngredients);
     fetchMenuItemsFromSupabase().then(setMenuItems);
@@ -121,27 +162,31 @@ export default function App() {
     const unsubTx = subscribeToTransactions(setTransactions);
     const unsubMenu = subscribeToMenuItems(setMenuItems);
 
-    // Sinkronisasi berkala (polling setiap 8 detik sebagai pengaman realtime WebSocket)
-    const pollInterval = setInterval(() => {
-      fetchTransactionsFromSupabase().then(setTransactions);
-      fetchIngredientsFromSupabase().then(setIngredients);
-      fetchMenuItemsFromSupabase().then(setMenuItems);
-    }, 8000);
+    // Sinkronisasi hemat kuota: hanya muat ulang saat tab browser kembali aktif (menggantikan polling 8 detik nonstop)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchTransactionsFromSupabase().then(setTransactions);
+        fetchIngredientsFromSupabase().then(setIngredients);
+        fetchMenuItemsFromSupabase().then(setMenuItems);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       unsubIng();
       unsubTx();
       unsubMenu();
-      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [isLoggedIn]);
 
   // Segera refetch transaksi dari cloud saat admin berpindah ke tab Ringkasan, Riwayat, atau Laporan
   useEffect(() => {
+    if (!isLoggedIn) return;
     if (activeTab === 'beranda' || activeTab === 'riwayat' || activeTab === 'laporan') {
       fetchTransactionsFromSupabase().then(setTransactions);
     }
-  }, [activeTab]);
+  }, [activeTab, isLoggedIn]);
 
   // Sync settings with DOM (Dark Mode and Text Scale)
   useEffect(() => {
@@ -173,54 +218,74 @@ export default function App() {
     setActiveTab('stok');
   };
 
-  // Adjust stock handler
-  const handleAdjustStock = (
+  // Adjust stock handler (await agar stock_logs langsung tercatat sebelum modal riwayat dibuka)
+  const handleAdjustStock = async (
     id: string,
     amount: number,
     type: 'masuk' | 'keluar',
     note: string
   ) => {
-    adjustStock(id, amount, type, note);
-    refreshData();
+    await adjustStock(id, amount, type, note);
+    setIngredients(getIngredients());
   };
 
-  // Save ingredient handler
-  const handleSaveIngredient = (ing: Ingredient) => {
-    saveIngredient(ing);
-    refreshData();
+  // Save ingredient handler (tunggu sinkronisasi selesai baru muat ulang)
+  const handleSaveIngredient = async (ing: Ingredient) => {
+    await saveIngredient(ing);
+    setIngredients(getIngredients());
+    const fresh = await fetchIngredientsFromSupabase();
+    setIngredients(fresh);
   };
 
   // Delete ingredient handler
-  const handleDeleteIngredient = (id: string) => {
-    deleteIngredient(id);
-    refreshData();
+  const handleDeleteIngredient = async (id: string) => {
+    await deleteIngredient(id);
+    setIngredients(getIngredients());
   };
 
   // Save menu item handler
-  const handleSaveMenuItem = (menu: MenuItem) => {
-    saveMenuItem(menu);
-    refreshData();
+  const handleSaveMenuItem = async (menu: MenuItem) => {
+    await saveMenuItem(menu);
+    setMenuItems(getMenuItems());
+    const fresh = await fetchMenuItemsFromSupabase();
+    setMenuItems(fresh);
   };
 
   // Delete menu item handler
-  const handleDeleteMenuItem = (id: string) => {
-    deleteMenuItem(id);
-    refreshData();
+  const handleDeleteMenuItem = async (id: string) => {
+    await deleteMenuItem(id);
+    setMenuItems(getMenuItems());
   };
 
-  // Save settings handler
-  const handleSaveSettings = (newSettings: StoreSettings) => {
-    saveSettings(newSettings);
+  // Save settings handler (syncStoreProfile = true hanya bila menyimpan profil toko)
+  const handleSaveSettings = (newSettings: StoreSettings, syncStoreProfile = false) => {
+    saveSettings(newSettings, syncStoreProfile);
     setSettings(newSettings);
+
+    // Sinkronkan status akun & nama pengelola ke tabel public.users bila berubah
+    if (
+      isSupabaseConfigured() &&
+      newSettings.userEmail &&
+      (newSettings.userStatus !== settings.userStatus || newSettings.userName !== settings.userName)
+    ) {
+      supabase
+        .from('users')
+        .update({
+          full_name: newSettings.userName,
+          account_status: newSettings.userStatus || 'Online',
+        })
+        .ilike('username', newSettings.userEmail)
+        .then(() => {});
+    }
   };
 
-  // Toggle theme helper
+  // Toggle theme helper (hanya simpan preferensi lokal perangkat, tidak mengubah tema user lain)
   const handleToggleTheme = () => {
     const updated = {
       ...settings,
       isDarkMode: !settings.isDarkMode,
     };
-    handleSaveSettings(updated);
+    handleSaveSettings(updated, false);
   };
 
   // Kosongkan seluruh data dummy (Mulai dari Nol, baik lokal maupun di Supabase)
@@ -244,6 +309,10 @@ export default function App() {
 
   const handleLogout = async () => {
     await logoutAdmin();
+    clearSensitiveLocalCache();
+    setTransactions([]);
+    setIngredients([]);
+    setMenuItems([]);
     setIsLoggedIn(false);
   };
 
@@ -290,6 +359,17 @@ export default function App() {
       setIsSubmittingAuth(false);
     }
   };
+
+  if (isCheckingSession) {
+    return (
+      <div className="min-h-screen bg-stone-100 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col justify-center items-center p-4 gap-3">
+        <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
+        <p className="text-xs font-bold text-stone-500 dark:text-stone-400">
+          Memverifikasi sesi keamanan pengelola...
+        </p>
+      </div>
+    );
+  }
 
   // HALAMAN LOGIN ADMIN (Dilindungi Rate Limit 3x Gagal & Cooldown 1 Menit)
   if (!isLoggedIn) {
@@ -511,10 +591,11 @@ export default function App() {
         </main>
       </div>
 
-      {/* MODAL STRUK DIGITAL / CETAK STRUK */}
+      {/* MODAL STRUK DIGITAL / CETAK STRUK (autoPrint dinonaktifkan saat tinjau riwayat di Admin) */}
       <ReceiptModal
         transaction={receiptTransaction}
         settings={settings}
+        autoPrint={false}
         onClose={() => setReceiptTransaction(null)}
       />
     </div>
