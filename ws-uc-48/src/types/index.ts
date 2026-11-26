@@ -1,10 +1,15 @@
 export type IngredientCategory =
   | 'Kerupuk'
+  | 'Topping & Baso'
   | 'Frozen Food'
   | 'Keringan'
   | 'Daging'
+  | 'Sayuran & Telur'
+  | 'Bumbu & Kuah'
+  | 'Mie & Pasta'
   | 'Minuman'
-  | 'Special';
+  | 'Special'
+  | (string & {});
 
 export type StockStatus = 'aman' | 'menipis' | 'habis';
 
@@ -44,7 +49,7 @@ export interface RecipeItem {
 export interface MenuItem {
   id: string;
   name: string;
-  category: 'Seblak' | 'Minuman' | 'Ekstra';
+  category: 'Seblak' | 'Paket Seblak' | 'Minuman' | 'Ekstra' | (string & {});
   basePrice: number;
   description: string;
   isAvailable: boolean;
@@ -64,6 +69,7 @@ export interface ToppingOption {
 
 export interface SelectedTopping {
   id: string;
+  ingredientId?: string;
   name: string;
   price: number;
 }

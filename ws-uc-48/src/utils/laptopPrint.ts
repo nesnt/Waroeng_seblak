@@ -1,7 +1,8 @@
 import { Transaction, StoreSettings } from '../types';
 
 /**
- * Kirim permintaan cetak langsung ke printer thermal yang terhubung ke Laptop Kasir (POS58 / Woya WP58D via USB/Bluetooth)
+ * Kirim permintaan cetak langsung ke printer thermal yang terhubung ke Laptop Kasir (POS58 / Woya WP58D via USB/Bluetooth).
+ * Jika dijalankan di hosting cloud (misal Vercel), berikan pesan panduan ke tombol Cetak Browser.
  */
 export async function printViaLaptopPrinter(
   transaction: Transaction,
@@ -15,6 +16,23 @@ export async function printViaLaptopPrinter(
       },
       body: JSON.stringify({ transaction, settings }),
     });
+
+    if (res.status === 404 || res.status === 405) {
+      return {
+        success: false,
+        error:
+          'Printer langsung USB/Bluetooth hanya aktif di server lokal kasir. Silakan gunakan tombol "Cetak Browser / PDF" atau aplikasi iOS Kasir.',
+      };
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return {
+        success: false,
+        error:
+          'Server cetak lokal tidak terdeteksi pada domain ini. Gunakan tombol "Cetak Browser / PDF".',
+      };
+    }
 
     const data = await res.json();
     return data;
