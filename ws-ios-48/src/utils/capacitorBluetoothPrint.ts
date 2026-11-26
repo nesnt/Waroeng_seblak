@@ -89,7 +89,12 @@ export function generateEscPosBytes(
     for (const b of arr) bytes.push(b);
   };
   const addText = (text: string) => {
-    const encoded = encoder.encode(text);
+    // Pastikan karakter murni ASCII aman untuk printer ESC/POS 58mm (hilangkan NBSP \u00A0 dari formatRupiah & simbol UTF-8)
+    const sanitized = text
+      .replace(/[\u00A0\u202F\u2007\u2009\u200B]/g, ' ')
+      .replace(/[•·–—]/g, '-')
+      .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
+    const encoded = encoder.encode(sanitized);
     for (const b of encoded) bytes.push(b);
   };
 

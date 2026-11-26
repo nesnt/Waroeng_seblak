@@ -213,8 +213,12 @@ export function generateEscPosBytes(
     for (const b of arr) bytes.push(b);
   };
   const addText = (text: string) => {
-    // Pastikan karakter aman untuk printer ESC/POS ASCII 58mm (hindari bullet UTF-8 jadi karakter acak)
-    const sanitized = text.replace(/[•·]/g, '-');
+    // Pastikan karakter murni ASCII aman untuk printer ESC/POS 58mm:
+    // Intl.NumberFormat('id-ID') menghasilkan Non-Breaking Space (\u00A0) setelah "Rp" yang tercetak jadi simbol aneh
+    const sanitized = text
+      .replace(/[\u00A0\u202F\u2007\u2009\u200B]/g, ' ')
+      .replace(/[•·–—]/g, '-')
+      .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
     const encoded = encoder.encode(sanitized);
     for (const b of encoded) bytes.push(b);
   };
