@@ -295,6 +295,9 @@ export const updateIngredientStock = async (
         // Abaikan jika trigger/constraint log belum diatur
       }
 
+      // Hapus cache agar pengecekan stok & katalog langsung akurat
+      memoryCache.clear();
+
       return {
         success: true,
         name: ing.name,
@@ -326,6 +329,8 @@ export const updateIngredientStock = async (
         })
         .eq('id', drink.id);
 
+      memoryCache.clear();
+
       return {
         success: true,
         name: drink.name,
@@ -347,6 +352,174 @@ export const updateIngredientStock = async (
   } catch (err: any) {
     console.error('[supabaseService.updateIngredientStock Error]:', err.message);
     throw new Error(`Gagal mengupdate stok: ${err.message}`);
+  }
+};
+
+/**
+ * Menambahkan bahan baku / topping prasmanan baru ke tabel ingredients (dan topping_options jika relevan)
+ */
+export const addIngredientOrTopping = async (params: {
+  name: string;
+  category?: string;
+  currentStock?: number;
+  minStock?: number;
+  unit?: string;
+  purchasePrice?: number;
+  sellingPrice?: number;
+}): Promise<{ success: boolean; id?: string; name: string; message: string }> => {
+  const cleanName = params.name.trim();
+  const category = (params.category || 'Topping & Baso').trim();
+  const currentStock = Math.max(0, Number(params.currentStock ?? 50));
+  const minStock = Math.max(0, Number(params.minStock ?? 20));
+  const unit = (params.unit || 'pcs').trim();
+  const purchasePrice = Math.max(0, Number(params.purchasePrice ?? 1000));
+  const sellingPrice =
+    params.sellingPrice !== undefined
+      ? Math.max(0, Number(params.sellingPrice))
+      : Math.max(1000, Math.ceil((purchasePrice * 1.5) / 500) * 500);
+
+  try {
+    // 1. Cek apakah bahan/topping dengan nama tersebut sudah ada
+    const { data: existing } = await supabase
+      .from('ingredients')
+      .select('id, name, current_stock, unit')
+      .ilike('name', cleanName)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      const item = existing[0];
+      return {
+        success: false,
+        id: item.id,
+        name: item.name,
+        message: `Bahan/topping "${item.name}" sudah terdaftar di sistem dengan stok saat ini ${item.current_stock} ${item.unit || 'pcs'}. Gunakan update stok jika ingin menambah jumlahnya.`
+      };
+    }
+
+    // 2. Masukkan ke tabel ingredients
+    const { data: inserted, error: insertError } = await supabase
+      .from('ingredients')
+      .insert({
+        name: cleanName,
+        category,
+        current_stock: currentStock,
+        min_stock: minStock,
+        unit,
+        last_purchase_price: purchasePrice,
+        updated_at: new Date().toISOString()
+      })
+      .select('id, name')
+      .single();
+
+    if (insertError) throw insertError;
+
+    // 3. Daftarkan juga ke topping_options agar terbaca di katalog bot pelanggan
+    try {
+      await supabase.from('topping_options').upsert(
+        {
+          ingredient_id: inserted.id,
+          name: cleanName,
+          price: sellingPrice,
+          amount_used: 1,
+          is_active: true
+        },
+        { onConflict: 'name' }
+      );
+    } catch {
+      // Non-blocking jika topping_options memakai aturan berbeda
+    }
+
+    // 4. Catat log stok awal jika > 0
+    if (currentStock > 0) {
+      try {
+        await supabase.from('stock_logs').insert({
+          ingredient_id: inserted.id,
+          type: 'masuk',
+          amount: currentStock,
+          balance_after: currentStock,
+          note: 'Stok awal (Ditambahkan via WhatsApp AI Agent)'
+        });
+      } catch {
+        // Abaikan jika log gagal
+      }
+    }
+
+    memoryCache.clear();
+
+    return {
+      success: true,
+      id: inserted.id,
+      name: inserted.name,
+      message: `Topping/bahan baru "${inserted.name}" (${category}) berhasil ditambahkan dengan stok ${currentStock} ${unit} (harga beli ${formatRupiah(purchasePrice)}).`
+    };
+  } catch (err: any) {
+    console.error('[supabaseService.addIngredientOrTopping Error]:', err.message);
+    throw new Error(`Gagal menambahkan topping/bahan baru: ${err.message}`);
+  }
+};
+
+/**
+ * Menambahkan menu minuman baru ke tabel menu_items
+ */
+export const addDrinkMenuItem = async (params: {
+  name: string;
+  price: number;
+  stock?: number;
+  unit?: string;
+  description?: string;
+}): Promise<{ success: boolean; id?: string; name: string; message: string }> => {
+  const cleanName = params.name.trim();
+  const basePrice = Math.max(0, Number(params.price));
+  const stock = Math.max(0, Number(params.stock ?? 50));
+  const unit = (params.unit || 'pcs').trim();
+  const description = (params.description || 'Minuman segar pelengkap seblak.').trim();
+
+  try {
+    // 1. Cek apakah minuman sudah ada
+    const { data: existing } = await supabase
+      .from('menu_items')
+      .select('id, name, base_price, stock, unit')
+      .ilike('name', cleanName)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      const item = existing[0];
+      return {
+        success: false,
+        id: item.id,
+        name: item.name,
+        message: `Minuman "${item.name}" sudah ada di katalog (Harga: ${formatRupiah(Number(item.base_price) || 0)}, Stok: ${item.stock ?? 0} ${item.unit || 'pcs'}).`
+      };
+    }
+
+    // 2. Insert ke menu_items
+    const { data: inserted, error: insertError } = await supabase
+      .from('menu_items')
+      .insert({
+        name: cleanName,
+        category: 'Minuman',
+        base_price: basePrice,
+        description,
+        stock,
+        unit,
+        is_available: stock > 0
+      })
+      .select('id, name')
+      .single();
+
+    if (insertError) throw insertError;
+
+    memoryCache.clear();
+
+    return {
+      success: true,
+      id: inserted.id,
+      name: inserted.name,
+      message: `Minuman baru "${inserted.name}" berhasil ditambahkan dengan harga ${formatRupiah(basePrice)} dan stok awal ${stock} ${unit}.`
+    };
+  } catch (err: any) {
+    console.error('[supabaseService.addDrinkMenuItem Error]:', err.message);
+    throw new Error(`Gagal menambahkan minuman baru: ${err.message}`);
   }
 };
 

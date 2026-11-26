@@ -2,8 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Transaction, StoreSettings, OrderItem } from '../types';
 import { formatRupiah } from '../utils/formatters';
-import { printViaLaptopPrinter } from '../utils/laptopPrint';
-import { Printer, X, CheckCircle2, Info, Loader2, Check } from 'lucide-react';
+import { printViaLaptopPrinter, isLocalKasirHost } from '../utils/laptopPrint';
+import {
+  printViaWebBluetooth,
+  hasConnectedBluetoothPrinter,
+  getConnectedPrinterName,
+} from '../utils/webBluetoothPrint';
+import { Printer, X, CheckCircle2, Info, Loader2, Bluetooth } from 'lucide-react';
 
 interface ReceiptModalProps {
   transaction: Transaction | null;
@@ -24,14 +29,45 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const [printStatus, setPrintStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const hasAutoPrinted = useRef(false);
 
-  // Otomatis cetak begitu modal struk terbuka (Auto-Print ke Laptop Kasir)
   useEffect(() => {
     if (!transaction || hasAutoPrinted.current || !autoPrint) return;
     hasAutoPrinted.current = true;
-    handleLaptopPrint(true);
+    if (hasConnectedBluetoothPrinter()) {
+      handleBluetoothPrint(true);
+    } else if (isLocalKasirHost()) {
+      handleLaptopPrint(true);
+    }
   }, [transaction, autoPrint]);
 
   if (!transaction) return null;
+
+  const handleBluetoothPrint = async (isAuto = false) => {
+    setIsPrinting(true);
+    setPrintStatus(null);
+    try {
+      const res = await printViaWebBluetooth(transaction, settings);
+      if (res.success) {
+        setPrintStatus({
+          type: 'success',
+          message: isAuto
+            ? `✅ Struk otomatis dicetak ke ${res.printerName || 'Printer Bluetooth'}!`
+            : `✅ Struk berhasil dicetak ke ${res.printerName || 'Printer Bluetooth'}!`,
+        });
+      } else {
+        setPrintStatus({
+          type: 'error',
+          message: res.error || 'Gagal mencetak ke printer Bluetooth.',
+        });
+      }
+    } catch (err: any) {
+      setPrintStatus({
+        type: 'error',
+        message: err.message || 'Gagal menghubungkan ke printer Bluetooth.',
+      });
+    } finally {
+      setIsPrinting(false);
+    }
+  };
 
   const handleLaptopPrint = async (isAuto = false) => {
     setIsPrinting(true);
@@ -48,13 +84,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
       } else {
         setPrintStatus({
           type: 'error',
-          message: res.error || 'Gagal mengirim perintah cetak ke laptop kasir.',
+          message: res.error || 'Gagal mengirim perintah cetak ke server lokal.',
         });
       }
     } catch (err: any) {
       setPrintStatus({
         type: 'error',
-        message: err.message || 'Koneksi ke server kasir terputus.',
+        message: err.message || 'Koneksi ke server lokal terputus.',
       });
     } finally {
       setIsPrinting(false);
@@ -304,30 +340,49 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="space-y-2">
             <button
               type="button"
               disabled={isPrinting}
-              onClick={() => handleLaptopPrint(false)}
-              className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer disabled:opacity-50"
-              title="Kirim ulang struk ke printer thermal kasir"
+              onClick={() => handleBluetoothPrint(false)}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer disabled:opacity-50"
+              title="Hubungkan & cetak langsung ke printer thermal Bluetooth (POS58 / Woya WP58D)"
             >
               {isPrinting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <Printer className="w-4 h-4" />
+                <Bluetooth className="w-4 h-4" />
               )}
-              <span>{isPrinting ? 'Mencetak...' : 'Cetak Ulang (Printer Kasir)'}</span>
+              <span>
+                {isPrinting
+                  ? 'Mencetak...'
+                  : hasConnectedBluetoothPrinter()
+                  ? `Cetak Bluetooth (${getConnectedPrinterName() || 'Terhubung'})`
+                  : 'Cetak via Bluetooth (POS58)'}
+              </span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleBrowserPrint}
-              className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 hover:bg-stone-300 dark:hover:bg-stone-700 font-bold text-xs sm:text-sm active:scale-98 transition cursor-pointer"
-              title="Cetak lewat dialog browser standar / AirPrint"
-            >
-              <span>Dialog Print (AirPrint)</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={isPrinting}
+                onClick={() => handleLaptopPrint(false)}
+                className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-2xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 hover:bg-stone-300 dark:hover:bg-stone-700 font-bold text-xs active:scale-98 transition cursor-pointer disabled:opacity-50"
+                title="Cetak via server USB lokal laptop kasir"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Cetak Printer Lokal (USB)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleBrowserPrint}
+                className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-2xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 hover:bg-stone-300 dark:hover:bg-stone-700 font-bold text-xs active:scale-98 transition cursor-pointer"
+                title="Cetak lewat dialog cetak browser atau simpan sebagai PDF"
+              >
+                <span>Cetak Browser / PDF</span>
+              </button>
+            </div>
           </div>
 
           <div className="flex justify-end pt-1">
@@ -341,7 +396,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </div>
 
           <p className="text-[10.5px] text-center text-stone-500 dark:text-stone-400 leading-tight">
-            ⚡ <strong>Cetak Otomatis Aktif</strong>: Begitu transaksi selesai, struk langsung keluar dari printer kasir di laptop.
+            💡 <strong>Tips Cetak Bluetooth</strong>: Hubungkan printer sekali lewat tombol <em>Cetak via Bluetooth</em>, struk transaksi berikutnya akan langsung tercetak otomatis.
           </p>
         </div>
       </div>

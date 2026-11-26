@@ -5,6 +5,8 @@ import {
   getLowStockIngredients,
   getAllStock,
   updateIngredientStock,
+  addIngredientOrTopping,
+  addDrinkMenuItem,
   getRecentTransactions
 } from '../services/supabaseService.js';
 
@@ -89,6 +91,74 @@ export const ownerFunctionDeclarations = [
         }
       }
     }
+  },
+  {
+    name: 'tambah_topping_atau_bahan',
+    description: 'Menambahkan varian topping atau bahan baku seblak BARU ke database (tabel ingredients & katalog topping). Gunakan saat owner menyuruh menambah item topping/bahan baru yang belum ada sebelumnya.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        nama: {
+          type: Type.STRING,
+          description: 'Nama topping atau bahan baru (misal: Dumpling Salmon, Ceker Mercon).'
+        },
+        kategori: {
+          type: Type.STRING,
+          description: 'Kategori bahan: "Kerupuk", "Topping & Baso", "Frozen Food", "Keringan", "Daging", "Sayuran & Telur", "Bumbu & Kuah", "Mie & Pasta", atau "Special". Default: "Topping & Baso".'
+        },
+        stok_awal: {
+          type: Type.NUMBER,
+          description: 'Jumlah stok awal saat ditambahkan (default 50).'
+        },
+        stok_minimum: {
+          type: Type.NUMBER,
+          description: 'Batas minimum peringatan stok menipis (default 20).'
+        },
+        satuan: {
+          type: Type.STRING,
+          description: 'Satuan unit (misal: "pcs", "gram", "bungkus"). Default: "pcs".'
+        },
+        harga_beli: {
+          type: Type.NUMBER,
+          description: 'Harga modal/beli satuan dalam Rupiah (default 1000).'
+        },
+        harga_jual: {
+          type: Type.NUMBER,
+          description: 'Harga jual topping dalam Rupiah untuk katalog (opsional).'
+        }
+      },
+      required: ['nama']
+    }
+  },
+  {
+    name: 'tambah_minuman_baru',
+    description: 'Menambahkan menu minuman BARU ke katalog warung (tabel menu_items kategori Minuman). Gunakan saat owner menginstruksikan menambah varian minuman baru beserta harga jualnya.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        nama: {
+          type: Type.STRING,
+          description: 'Nama menu minuman baru (misal: Es Matcha Latte, Lemon Tea Dingin).'
+        },
+        harga_jual: {
+          type: Type.NUMBER,
+          description: 'Harga jual minuman dalam Rupiah (angka >= 0).'
+        },
+        stok_awal: {
+          type: Type.NUMBER,
+          description: 'Jumlah stok awal minuman (default 50).'
+        },
+        satuan: {
+          type: Type.STRING,
+          description: 'Satuan minuman (default "pcs").'
+        },
+        deskripsi: {
+          type: Type.STRING,
+          description: 'Deskripsi singkat minuman (opsional).'
+        }
+      },
+      required: ['nama', 'harga_jual']
+    }
   }
 ];
 
@@ -114,6 +184,24 @@ const updateStokSchema = z.object({
 
 const cekTransaksiSchema = z.object({
   jumlah: z.number().int().min(1).max(10).optional().default(5)
+});
+
+const tambahToppingSchema = z.object({
+  nama: z.string().min(1, 'Nama topping/bahan wajib diisi').max(100),
+  kategori: z.string().optional(),
+  stok_awal: z.number().min(0).optional(),
+  stok_minimum: z.number().min(0).optional(),
+  satuan: z.string().optional(),
+  harga_beli: z.number().min(0).optional(),
+  harga_jual: z.number().min(0).optional()
+});
+
+const tambahMinumanSchema = z.object({
+  nama: z.string().min(1, 'Nama minuman wajib diisi').max(100),
+  harga_jual: z.number().min(0, 'Harga jual tidak boleh negatif'),
+  stok_awal: z.number().min(0).optional(),
+  satuan: z.string().optional(),
+  deskripsi: z.string().optional()
 });
 
 /**
@@ -146,6 +234,30 @@ export const executeOwnerTool = async (name: string, rawArgs: any): Promise<any>
     case 'cek_transaksi_terakhir': {
       const args = cekTransaksiSchema.parse(rawArgs || {});
       return await getRecentTransactions(args.jumlah);
+    }
+
+    case 'tambah_topping_atau_bahan': {
+      const args = tambahToppingSchema.parse(rawArgs);
+      return await addIngredientOrTopping({
+        name: args.nama,
+        category: args.kategori,
+        currentStock: args.stok_awal,
+        minStock: args.stok_minimum,
+        unit: args.satuan,
+        purchasePrice: args.harga_beli,
+        sellingPrice: args.harga_jual
+      });
+    }
+
+    case 'tambah_minuman_baru': {
+      const args = tambahMinumanSchema.parse(rawArgs);
+      return await addDrinkMenuItem({
+        name: args.nama,
+        price: args.harga_jual,
+        stock: args.stok_awal,
+        unit: args.satuan,
+        description: args.deskripsi
+      });
     }
 
     default:

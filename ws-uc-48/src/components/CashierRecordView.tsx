@@ -27,9 +27,6 @@ import {
   FileEdit,
   LogOut,
   Printer,
-  Banknote,
-  QrCode,
-  CreditCard,
   Loader2,
 } from 'lucide-react';
 import {
@@ -41,7 +38,6 @@ import {
   BowlOrder,
   SelectedTopping,
   Transaction,
-  PaymentMethod,
 } from '../types';
 import { formatRupiah } from '../utils/formatters';
 import { IngredientImage } from './IngredientIllustration';
@@ -264,8 +260,7 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
   const [toppingSearchQuery, setToppingSearchQuery] = useState<string>('');
   const [isCartModalOpen, setIsCartModalOpen] = useState<boolean>(false);
 
-  // Konfirmasi & Pembayaran
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Tunai');
+  // Konfirmasi
   const [isSubmittingTx, setIsSubmittingTx] = useState<boolean>(false);
   const [isEditingReceipt, setIsEditingReceipt] = useState<boolean>(false);
   const [createdInvoice, setCreatedInvoice] = useState<string>('');
@@ -430,10 +425,8 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
       setWantsDrink(false);
       setSelectedDrinks({});
       setSelectedToppings({});
-      setPaymentMethod('Tunai');
       setStep('bowl_number');
     } else {
-      setPaymentMethod('Tunai');
       refreshBowlOrders();
       setStep('auto_bowl_list');
     }
@@ -596,7 +589,7 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
         customerName: `${customerName.trim()} (Mangkuk #${bowlNumber.trim()})`,
         items,
         totalAmount: grandTotalPrice,
-        paymentMethod,
+        paymentMethod: 'Tunai',
         notes: `[Catat Kasir ${recordMode === 'auto' ? 'Otomatis' : 'Manual'}] ${dineType} | Mangkuk #${bowlNumber.trim()} | Kuah: ${brothType} | Pedas: ${spicySummaryLabel}${
           notes.trim() ? ` | Catatan: ${notes.trim()}` : ''
         }`,
@@ -621,7 +614,6 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
   const handleResetToStart = () => {
     setLastCreatedTransaction(null);
     setIsReceiptModalOpen(false);
-    setPaymentMethod('Tunai');
     setBowlNumber('');
     setCustomerName('');
     setDineType('Makan di Sini');
@@ -2014,48 +2006,15 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                     )}
                   </div>
 
-                  {/* Pilihan Metode Pembayaran, Total Akhir & Tombol Konfirmasi */}
+                  {/* Total Akhir & Tombol Konfirmasi */}
                   <div className="space-y-3 pt-1 font-sans">
-                    <div>
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 block mb-2">
-                        METODE PEMBAYARAN PELANGGAN
-                      </span>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(
-                          [
-                            { id: 'Tunai', label: 'Tunai', icon: Banknote },
-                            { id: 'QRIS', label: 'QRIS', icon: QrCode },
-                            { id: 'Transfer', label: 'Transfer', icon: CreditCard },
-                          ] as const
-                        ).map((pm) => {
-                          const Icon = pm.icon;
-                          const active = paymentMethod === pm.id;
-                          return (
-                            <button
-                              key={pm.id}
-                              type="button"
-                              onClick={() => setPaymentMethod(pm.id)}
-                              className={`py-2.5 px-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                                active
-                                  ? 'bg-orange-600 border-orange-600 text-white shadow-sm'
-                                  : 'bg-stone-50 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:border-orange-400'
-                              }`}
-                            >
-                              <Icon className="w-3.5 h-3.5 shrink-0" />
-                              <span>{pm.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
                     <div className="p-4 rounded-2xl bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60 flex items-center justify-between">
                       <div>
                         <span className="text-[11px] font-bold text-orange-800 dark:text-orange-300 block">
                           TOTAL TAGIHAN MANGKUK #{bowlNumber}
                         </span>
                         <span className="text-xs text-stone-500 dark:text-stone-400">
-                          {totalToppingCount} Topping + {totalDrinkCount} Minuman · {paymentMethod}
+                          {totalToppingCount} Topping + {totalDrinkCount} Minuman
                         </span>
                       </div>
                       <span className="text-xl sm:text-2xl font-black text-orange-600 dark:text-orange-400 tabular-nums">
@@ -2083,7 +2042,7 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                       ) : (
                         <>
                           <CheckCircle2 className="w-5 h-5 shrink-0" />
-                          <span>Konfirmasi &amp; Selesaikan Pencatatan Kasir ({paymentMethod})</span>
+                          <span>Konfirmasi &amp; Selesaikan Pencatatan Kasir</span>
                         </>
                       )}
                     </button>
