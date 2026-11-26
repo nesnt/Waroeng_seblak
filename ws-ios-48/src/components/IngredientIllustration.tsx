@@ -236,7 +236,12 @@ export const IngredientImage: React.FC<IngredientImageProps> = ({
 }) => {
   const [imgError, setImgError] = useState(false);
   const fallbackSrc = getIngredientSvgDataUri(name, category);
-  const activeSrc = !imgError && imageUrl && imageUrl.trim() !== '' ? imageUrl : fallbackSrc;
+  const trimmedUrl = imageUrl ? imageUrl.trim() : '';
+  const isSafeProtocol =
+    /^https?:\/\//i.test(trimmedUrl) ||
+    trimmedUrl.startsWith('blob:') ||
+    /^data:image\/(jpeg|jpg|png|webp|gif|svg\+xml)/i.test(trimmedUrl);
+  const activeSrc = !imgError && isSafeProtocol ? trimmedUrl : fallbackSrc;
 
   return (
     <img

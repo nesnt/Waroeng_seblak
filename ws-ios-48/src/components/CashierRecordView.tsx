@@ -27,6 +27,7 @@ import {
   FileEdit,
   LogOut,
   Printer,
+  Loader2,
 } from 'lucide-react';
 import {
   Ingredient,
@@ -221,6 +222,7 @@ export interface PrasmananToppingItem {
   price: number;
   stock: number;
   unit: string;
+  imageUrl?: string;
 }
 
 export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
@@ -259,6 +261,7 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
   const [isCartModalOpen, setIsCartModalOpen] = useState<boolean>(false);
 
   // Konfirmasi
+  const [isSubmittingTx, setIsSubmittingTx] = useState<boolean>(false);
   const [isEditingReceipt, setIsEditingReceipt] = useState<boolean>(false);
   const [createdInvoice, setCreatedInvoice] = useState<string>('');
   const [lastCreatedTransaction, setLastCreatedTransaction] = useState<Transaction | null>(null);
@@ -312,48 +315,25 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
         price: matchedOpt ? matchedOpt.price : fallbackPrice,
         stock: ing.currentStock,
         unit: ing.unit,
+        imageUrl: ing.imageUrl,
       };
     });
 
-  // Update qty minuman
-  const updateDrinkQty = (drinkId: string, delta: number) => {
-    setSelectedDrinks((prev) => {
-      const current = prev[drinkId] || 0;
-      const next = Math.max(0, current + delta);
-      const updated = { ...prev };
-      if (next === 0) {
-        delete updated[drinkId];
-      } else {
-        updated[drinkId] = next;
-      }
-      return updated;
-    });
-  };
+  // Kategori topping dinamis mengikuti seluruh kategori asli bahan di Supabase
+  const dynamicToppingCategories: ('Semua' | IngredientCategory)[] = useMemo(() => {
+    const liveCats = Array.from(
+      new Set(toppingCatalog.map((t) => t.category).filter(Boolean))
+    );
+    const merged = Array.from(
+      new Set([...liveCats, ...TOPPING_CATEGORIES.filter((c) => c !== 'Semua')])
+    );
+    return ['Semua', ...merged];
+  }, [toppingCatalog]);
 
-  // Update qty topping (konsep cart belanja)
-  const updateToppingQty = (toppingId: string, delta: number) => {
-    setSelectedToppings((prev) => {
-      const current = prev[toppingId] || 0;
-      const next = Math.max(0, current + delta);
-      const updated = { ...prev };
-      if (next === 0) {
-        delete updated[toppingId];
-      } else {
-        updated[toppingId] = next;
-      }
-      return updated;
-    });
-    if (errorMsg) setErrorMsg('');
-  };
-
-  const clearToppingsCart = () => {
-    setSelectedToppings({});
-  };
-
-  // Katalog Minuman Dinamis dari Database (Kategori Minuman & Tersedia)
+  // Katalog Minuman Dinamis dari Database (Kategori Minuman, Tersedia & Stok > 0)
   const activeDrinkCatalog: DrinkOption[] = useMemo(() => {
     const fromMenu = (menuItems || [])
-      .filter((m) => m.category === 'Minuman' && m.isAvailable)
+      .filter((m) => m.category === 'Minuman' && m.isAvailable && (m.stock ?? 50) > 0)
       .map((m) => ({
         id: m.id,
         name: m.name,
@@ -369,6 +349,50 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
     }
     return DRINK_CATALOG;
   }, [menuItems]);
+
+  // Update qty minuman (dibatasi sisa stok)
+  const updateDrinkQty = (drinkId: string, delta: number) => {
+    const drinkDef = activeDrinkCatalog.find((d) => d.id === drinkId);
+    const maxStock = drinkDef?.stock ?? 50;
+    setSelectedDrinks((prev) => {
+      const current = prev[drinkId] || 0;
+      const next = Math.min(maxStock, Math.max(0, current + delta));
+      const updated = { ...prev };
+      if (next === 0) {
+        delete updated[drinkId];
+      } else {
+        updated[drinkId] = next;
+      }
+      return updated;
+    });
+  };
+
+  // Update qty topping (dibatasi sisa stok bahan di warung)
+  const updateToppingQty = (toppingId: string, delta: number) => {
+    const topDef = toppingCatalog.find((t) => t.id === toppingId);
+    const maxStock = topDef ? Math.max(0, topDef.stock) : 99;
+    if (delta > 0 && maxStock <= 0) {
+      setErrorMsg(`Stok "${topDef?.name || 'Topping'}" sedang habis (0 ${topDef?.unit || 'pcs'}).`);
+      return;
+    }
+
+    setSelectedToppings((prev) => {
+      const current = prev[toppingId] || 0;
+      const next = Math.min(maxStock, Math.max(0, current + delta));
+      const updated = { ...prev };
+      if (next === 0) {
+        delete updated[toppingId];
+      } else {
+        updated[toppingId] = next;
+      }
+      return updated;
+    });
+    if (errorMsg) setErrorMsg('');
+  };
+
+  const clearToppingsCart = () => {
+    setSelectedToppings({});
+  };
 
   // Perhitungan total minuman & topping
   const totalDrinkCount = Object.values(selectedDrinks).reduce((sum, qty) => sum + qty, 0);
@@ -484,8 +508,9 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
     setStep('confirmation');
   };
 
-  // Step Konfirmasi Akhir -> Simpan Transaksi & Potong Stok
-  const handleConfirmOrder = () => {
+  // Step Konfirmasi Akhir -> Simpan Transaksi Resmi & Potong Stok Cloud
+  const handleConfirmOrder = async () => {
+    if (isSubmittingTx) return;
     if (!bowlNumber.trim()) {
       setErrorMsg('Nomor mangkuk tidak boleh kosong.');
       return;
@@ -499,81 +524,91 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
       return;
     }
 
-    const spicySummaryLabel =
-      spicyLevel === 0
-        ? 'Original'
-        : spicyLevel === 6
-        ? `Request (${spicyRequestText.trim() || 'Sesuai Request'})`
-        : `${spicyLevel}`;
+    setIsSubmittingTx(true);
+    setErrorMsg('');
 
-    // Susun daftar SelectedTopping untuk pemotongan stok otomatis di storage.ts
-    const expandedToppings: SelectedTopping[] = [];
-    const toppingSummaryParts: string[] = [];
+    try {
+      const spicySummaryLabel =
+        spicyLevel === 0
+          ? 'Original'
+          : spicyLevel === 6
+          ? `Request (${spicyRequestText.trim() || 'Sesuai Request'})`
+          : `${spicyLevel}`;
 
-    toppingCatalog.forEach((top) => {
-      const qty = selectedToppings[top.id] || 0;
-      if (qty > 0) {
-        toppingSummaryParts.push(`${top.name} x${qty}`);
-        for (let i = 0; i < qty; i++) {
-          expandedToppings.push({
-            id: top.id,
-            name: top.name,
-            price: top.price,
+      // Susun daftar SelectedTopping dengan ingredientId UUID asli agar pemotongan stok akurat
+      const expandedToppings: SelectedTopping[] = [];
+      const toppingSummaryParts: string[] = [];
+
+      toppingCatalog.forEach((top) => {
+        const qty = selectedToppings[top.id] || 0;
+        if (qty > 0) {
+          toppingSummaryParts.push(`${top.name} x${qty}`);
+          for (let i = 0; i < qty; i++) {
+            expandedToppings.push({
+              id: top.id,
+              ingredientId: top.ingredientId,
+              name: top.name,
+              price: top.price,
+            });
+          }
+        }
+      });
+
+      const items: OrderItem[] = [
+        {
+          menuItemId: 'menu-prasmanan',
+          menuItemName: `Seblak Prasmanan (Mangkuk #${bowlNumber.trim()})`,
+          quantity: 1,
+          price: totalToppingPrice,
+          levelPedas: spicyLevel === 6 ? 5 : spicyLevel,
+          toppings: expandedToppings,
+          subtotal: totalToppingPrice,
+          notes: `${dineType} · Kuah ${brothType} · Pedas: ${spicySummaryLabel} · Topping: ${toppingSummaryParts.join(', ')}${
+            notes.trim() ? ` · Catatan: ${notes.trim()}` : ''
+          }`,
+        },
+      ];
+
+      activeDrinkCatalog.forEach((drink) => {
+        const qty = selectedDrinks[drink.id] || 0;
+        if (qty > 0) {
+          items.push({
+            menuItemId: drink.id || 'menu-6',
+            menuItemName: drink.name,
+            quantity: qty,
+            price: drink.price,
+            levelPedas: 0,
+            toppings: [],
+            subtotal: qty * drink.price,
+            notes: 'Minuman Tambahan',
           });
         }
-      }
-    });
+      });
 
-    const items: OrderItem[] = [
-      {
-        menuItemId: 'menu-prasmanan',
-        menuItemName: `Seblak Prasmanan (Mangkuk #${bowlNumber.trim()})`,
-        quantity: 1,
-        price: totalToppingPrice,
-        levelPedas: spicyLevel === 6 ? 5 : spicyLevel,
-        toppings: expandedToppings,
-        subtotal: totalToppingPrice,
-        notes: `${dineType} · Kuah ${brothType} · Pedas: ${spicySummaryLabel} · Topping: ${toppingSummaryParts.join(', ')}${
-          notes.trim() ? ` · Catatan: ${notes.trim()}` : ''
+      const newTx = await createTransaction({
+        customerName: `${customerName.trim()} (Mangkuk #${bowlNumber.trim()})`,
+        items,
+        totalAmount: grandTotalPrice,
+        paymentMethod: 'Tunai',
+        notes: `[Catat Kasir ${recordMode === 'auto' ? 'Otomatis' : 'Manual'}] ${dineType} | Mangkuk #${bowlNumber.trim()} | Kuah: ${brothType} | Pedas: ${spicySummaryLabel}${
+          notes.trim() ? ` | Catatan: ${notes.trim()}` : ''
         }`,
-      },
-    ];
+      });
 
-    activeDrinkCatalog.forEach((drink) => {
-      const qty = selectedDrinks[drink.id] || 0;
-      if (qty > 0) {
-        items.push({
-          menuItemId: drink.id || 'menu-6',
-          menuItemName: drink.name,
-          quantity: qty,
-          price: drink.price,
-          levelPedas: 0,
-          toppings: [],
-          subtotal: qty * drink.price,
-          notes: 'Minuman Tambahan',
-        });
+      if (recordMode === 'auto' && selectedAutoBowlId) {
+        await completeBowlOrder(selectedAutoBowlId, newTx.invoiceNumber, newTx.id);
+        refreshBowlOrders();
       }
-    });
 
-    const newTx = createTransaction({
-      customerName: `${customerName.trim()} (Mangkuk #${bowlNumber.trim()})`,
-      items,
-      totalAmount: grandTotalPrice,
-      paymentMethod: 'Tunai',
-      notes: `[Catat Kasir ${recordMode === 'auto' ? 'Otomatis' : 'Manual'}] ${dineType} | Mangkuk #${bowlNumber.trim()} | Kuah: ${brothType} | Pedas: ${spicySummaryLabel}${
-        notes.trim() ? ` | Catatan: ${notes.trim()}` : ''
-      }`,
-    });
-
-    if (recordMode === 'auto' && selectedAutoBowlId) {
-      completeBowlOrder(selectedAutoBowlId, newTx.invoiceNumber);
-      refreshBowlOrders();
+      setLastCreatedTransaction(newTx);
+      setCreatedInvoice(newTx.invoiceNumber);
+      onOrderCreated();
+      setStep('completed');
+    } catch {
+      setErrorMsg('Gagal menyimpan transaksi ke server. Periksa koneksi lalu coba lagi.');
+    } finally {
+      setIsSubmittingTx(false);
     }
-
-    setLastCreatedTransaction(newTx);
-    setCreatedInvoice(newTx.invoiceNumber);
-    onOrderCreated();
-    setStep('completed');
   };
 
   const handleResetToStart = () => {
@@ -1622,7 +1657,7 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
 
                   {/* Filter Tabs Kategori Topping */}
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                    {TOPPING_CATEGORIES.map((cat) => {
+                    {dynamicToppingCategories.map((cat) => {
                       const active = toppingCategory === cat;
                       return (
                         <button
@@ -1642,27 +1677,36 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                   </div>
                 </div>
 
+                {errorMsg && (
+                  <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-xs font-bold text-red-600 dark:text-red-300 text-center">
+                    {errorMsg}
+                  </div>
+                )}
+
                 {/* Grid Card Topping */}
                 {filteredToppings.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
                     {filteredToppings.map((top) => {
                       const qty = selectedToppings[top.id] || 0;
+                      const isOutOfStock = top.stock <= 0;
                       return (
                         <div
                           key={top.id}
-                          onClick={() => updateToppingQty(top.id, 1)}
+                          onClick={() => !isOutOfStock && updateToppingQty(top.id, 1)}
                           role="button"
-                          tabIndex={0}
+                          tabIndex={isOutOfStock ? -1 : 0}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
+                            if (!isOutOfStock && (e.key === 'Enter' || e.key === ' ')) {
                               e.preventDefault();
                               updateToppingQty(top.id, 1);
                             }
                           }}
-                          className={`rounded-2xl border-2 overflow-hidden flex flex-col justify-between transition min-w-0 cursor-pointer select-none relative group ${
-                            qty > 0
-                              ? 'border-orange-600 bg-orange-50/30 dark:bg-orange-950/20 shadow-sm'
-                              : 'border-stone-200 dark:border-stone-800 bg-stone-50/60 dark:bg-stone-800/40 hover:border-orange-400'
+                          className={`rounded-2xl border-2 overflow-hidden flex flex-col justify-between transition min-w-0 select-none relative group ${
+                            isOutOfStock
+                              ? 'border-stone-200/70 dark:border-stone-800/70 bg-stone-100/60 dark:bg-stone-900/40 opacity-65 cursor-not-allowed'
+                              : qty > 0
+                              ? 'border-orange-600 bg-orange-50/30 dark:bg-orange-950/20 shadow-sm cursor-pointer'
+                              : 'border-stone-200 dark:border-stone-800 bg-stone-50/60 dark:bg-stone-800/40 hover:border-orange-400 cursor-pointer'
                           }`}
                         >
                           <div>
@@ -1670,13 +1714,18 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                               <IngredientImage
                                 name={top.name}
                                 category={top.category}
+                                imageUrl={top.imageUrl}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                               />
-                              {qty > 0 && (
+                              {isOutOfStock ? (
+                                <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-red-600 text-white font-black text-[10px] shadow-md">
+                                  Habis
+                                </div>
+                              ) : qty > 0 ? (
                                 <div className="absolute top-2 right-2 w-7 h-7 rounded-xl bg-orange-600 text-white font-black text-xs flex items-center justify-center shadow-md tabular-nums">
                                   {qty}x
                                 </div>
-                              )}
+                              ) : null}
                             </div>
 
                             <div className="p-3 space-y-1">
@@ -1697,7 +1746,15 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                             className="p-3 pt-0"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {qty === 0 ? (
+                            {isOutOfStock ? (
+                              <button
+                                type="button"
+                                disabled
+                                className="w-full py-2 px-2.5 rounded-xl bg-stone-200 dark:bg-stone-800 text-stone-500 dark:text-stone-400 font-bold text-xs cursor-not-allowed"
+                              >
+                                Stok Habis
+                              </button>
+                            ) : qty === 0 ? (
                               <button
                                 type="button"
                                 onClick={() => updateToppingQty(top.id, 1)}
@@ -1965,13 +2022,29 @@ export const CashierRecordView: React.FC<CashierRecordViewProps> = ({
                       </span>
                     </div>
 
+                    {errorMsg && (
+                      <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-xs font-bold text-red-600 dark:text-red-300 text-center">
+                        {errorMsg}
+                      </div>
+                    )}
+
                     <button
                       type="button"
+                      disabled={isSubmittingTx}
                       onClick={handleConfirmOrder}
-                      className="w-full py-4 px-5 rounded-2xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer"
+                      className="w-full py-4 px-5 rounded-2xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <CheckCircle2 className="w-5 h-5 shrink-0" />
-                      <span>Konfirmasi &amp; Selesaikan Pencatatan Kasir</span>
+                      {isSubmittingTx ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                          <span>Menyimpan Transaksi &amp; Memotong Stok...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 shrink-0" />
+                          <span>Konfirmasi &amp; Selesaikan Pencatatan Kasir</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>

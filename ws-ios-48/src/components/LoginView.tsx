@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { StoreSettings } from '../types';
 import { getRateLimitStatus, recordFailedAttempt, resetRateLimit } from '../utils/authRateLimit';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { verifyCashierLogin } from '../services/cashierAuth';
 
 interface LoginViewProps {
   settings: StoreSettings;
@@ -69,55 +69,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setLoginError('');
 
     try {
-      // 1. Jika Supabase aktif, verifikasi ke Supabase Auth
-      if (isSupabaseConfigured()) {
-        const normalized = emailTrim.includes('@') ? emailTrim : `${emailTrim}@seblak48.id`;
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: normalized,
-          password: passTrim,
-        });
+      const authRes = await verifyCashierLogin(emailTrim, passTrim);
 
-        if (data?.user) {
-          resetRateLimit('seblak48_kasir');
-          setLoginError('');
-          onLoginSuccess();
-          return;
-        }
-      }
-
-      // 2. Cek akun kasir / admin dari penyimpanan akun pengguna lokal (seblak48_users)
-      let isMatchedUser = false;
-      try {
-        const rawUsers = localStorage.getItem('seblak48_users');
-        if (rawUsers) {
-          const users = JSON.parse(rawUsers);
-          if (Array.isArray(users)) {
-            const matched = users.find(
-              (u: any) =>
-                u.username.toLowerCase() === emailTrim &&
-                u.password === passTrim &&
-                (u.role === 'KASIR' || u.role === 'ADMIN')
-            );
-            if (matched) isMatchedUser = true;
-          }
-        }
-      } catch (e) {}
-
-      // 3. Kredensial Kasir fallback offline
-      const isDefaultNabil =
-        (emailTrim === 'nabil@gmail.com' || emailTrim === 'nabil') &&
-        passTrim === 'I2345678*';
-
-      const isValidKasir =
-        isMatchedUser ||
-        isDefaultNabil ||
-        ((emailTrim === 'kasir@seblak48.id' ||
-          emailTrim === 'kasir' ||
-          emailTrim === 'kasir1' ||
-          emailTrim === 'admin@seblak48.id') &&
-          (passTrim === 'kasir48' || passTrim === 'seblak48' || passTrim === 'kasir123'));
-
-      if (isValidKasir) {
+      if (authRes.success && authRes.user) {
         resetRateLimit('seblak48_kasir');
         setLoginError('');
         onLoginSuccess();
@@ -128,7 +82,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
           setLoginError('Terlalu banyak percobaan gagal (3x). Akses kasir di perangkat ini dibatasi selama 1 menit.');
         } else {
           const sisa = res.maxAttempts - res.attempts;
-          setLoginError(`Email atau kata sandi kasir salah! Sisa percobaan sebelum terkunci: ${sisa}x.`);
+          setLoginError(
+            `${authRes.error || 'Email atau kata sandi kasir salah!'} Sisa percobaan sebelum terkunci: ${sisa}x.`
+          );
         }
       }
     } finally {

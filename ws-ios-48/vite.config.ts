@@ -85,7 +85,7 @@ function thermalPrintApiPlugin(): Plugin {
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss(), thermalPrintApiPlugin()],
-    envPrefix: ['VITE_', 'SUPABASE_', 'NEXT_PUBLIC_', 'ANON_'],
+    envPrefix: ['VITE_'],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -93,7 +93,7 @@ export default defineConfig(() => {
     },
     server: {
       host: '0.0.0.0',
-      allowedHosts: true,
+      allowedHosts: true as const,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
@@ -103,7 +103,7 @@ export default defineConfig(() => {
     preview: {
       port: 3000,
       host: '0.0.0.0',
-      allowedHosts: true,
+      allowedHosts: true as const,
     },
   };
 });

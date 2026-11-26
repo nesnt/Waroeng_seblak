@@ -17,13 +17,6 @@ import {
   TOPPING_OPTIONS,
 } from '../data/dummyData';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import {
-  DbIngredient,
-  DbMenuItem,
-  DbTransaction,
-  DbBowlOrder,
-  DbStoreSettings,
-} from '../types/database';
 
 const STORAGE_KEYS = {
   INGREDIENTS: 'seblak48_v2_ingredients',
@@ -32,9 +25,43 @@ const STORAGE_KEYS = {
   STOCK_LOGS: 'seblak48_v2_stock_logs',
   SETTINGS: 'seblak48_v2_settings',
   BOWL_ORDERS: 'seblak48_v2_bowl_orders',
+  UI_PREFS: 'seblak48_uc_ui_prefs',
 };
 
-// Helper status calculator
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function getLocalUiPrefs(): { isDarkMode?: boolean; textScale?: StoreSettings['textScale'] } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.UI_PREFS);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalUiPrefs(prefs: {
+  isDarkMode?: boolean;
+  textScale?: StoreSettings['textScale'];
+}): void {
+  try {
+    const current = getLocalUiPrefs();
+    localStorage.setItem(STORAGE_KEYS.UI_PREFS, JSON.stringify({ ...current, ...prefs }));
+  } catch {
+    // Ignore storage error
+  }
+}
+
 export function calculateStockStatus(currentStock: number, minStock: number): StockStatus {
   if (currentStock <= 0) return 'habis';
   if (currentStock <= minStock) return 'menipis';
@@ -51,7 +78,7 @@ function mapDbIngredientToFrontend(row: any): Ingredient {
   return {
     id: row.id,
     name: row.name,
-    category: (row.categories?.name || row.category || 'Kerupuk') as any,
+    category: (row.category || row.categories?.name || 'Kerupuk') as any,
     currentStock,
     unit: row.unit || 'pcs',
     minStock,
@@ -66,7 +93,7 @@ function mapDbMenuItemToFrontend(row: any): MenuItem {
   return {
     id: row.id,
     name: row.name,
-    category: (row.categories?.name || row.category || 'Seblak') as any,
+    category: (row.category || row.categories?.name || 'Seblak') as any,
     basePrice: Number(row.base_price ?? 0),
     description: row.description || '',
     isAvailable: row.is_available ?? true,
@@ -84,8 +111,8 @@ function mapDbMenuItemToFrontend(row: any): MenuItem {
 function mapDbBowlOrderToFrontend(row: any): BowlOrder {
   const drinks = (row.bowl_order_drinks || []).map((d: any) => ({
     id: d.menu_item_id || d.id,
-    name: d.menu_items?.name || 'Minuman',
-    price: Number(d.menu_items?.base_price ?? 5000),
+    name: d.name || d.menu_items?.name || 'Minuman',
+    price: Number(d.price ?? d.menu_items?.base_price ?? 5000),
     qty: Number(d.qty ?? 1),
   }));
 
@@ -101,6 +128,7 @@ function mapDbBowlOrderToFrontend(row: any): BowlOrder {
     drinks,
     createdAt: row.created_at || new Date().toISOString(),
     status: row.status === 'selesai' ? 'selesai' : 'menunggu_hitung',
+    invoiceNumber: row.invoice_number || undefined,
   };
 }
 
@@ -213,7 +241,6 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[]> {
       .limit(200);
 
     if (error || !data) {
-      console.warn('⚠️ [Supabase] Join transaction_items gagal, mencoba query tabel transactions langsung:', error?.message);
       const fallback = await supabase
         .from('transactions')
         .select('*')
@@ -247,14 +274,15 @@ export async function fetchSettingsFromSupabase(): Promise<StoreSettings> {
 
     if (error) throw error;
     if (data) {
+      const uiPrefs = getLocalUiPrefs();
       const settings: StoreSettings = {
         storeName: data.store_name,
         slogan: data.slogan,
         address: data.address,
         phone: data.phone,
-        textScale: data.text_scale || 'normal',
-        isDarkMode: Boolean(data.is_dark_mode),
-        userName: 'Siti Kasir 48',
+        textScale: uiPrefs.textScale || data.text_scale || 'normal',
+        isDarkMode: uiPrefs.isDarkMode !== undefined ? uiPrefs.isDarkMode : Boolean(data.is_dark_mode),
+        userName: 'Petugas Kasir 48',
         userRole: 'Kasir Utama',
       };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
@@ -268,12 +296,9 @@ export async function fetchSettingsFromSupabase(): Promise<StoreSettings> {
 }
 
 // ============================================================================
-// REALTIME SUBSCRIPTIONS: Push update instan untuk Kasir
+// REALTIME SUBSCRIPTIONS: Push update instan untuk Kasir & Pelanggan
 // ============================================================================
 
-/**
- * Kasir mendengarkan pesanan mangkuk baru secara live dari pembeli (WebSockets)
- */
 export function subscribeToBowlOrders(onUpdate: (orders: BowlOrder[]) => void) {
   if (!isSupabaseConfigured()) return () => {};
   const channel = supabase
@@ -320,7 +345,7 @@ export function subscribeToMenuItems(onUpdate: (menus: MenuItem[]) => void) {
 }
 
 // ============================================================================
-// SYNCHRONOUS & HYBRID FUNCTIONS (Untuk UI Component Rendering & Local Cache)
+// SYNCHRONOUS & HYBRID FUNCTIONS (Untuk UI Component Rendering & Cloud Sync)
 // ============================================================================
 
 export function getIngredients(): Ingredient[] {
@@ -341,67 +366,6 @@ export function getIngredients(): Ingredient[] {
   }
 }
 
-export function saveIngredient(ingredient: Ingredient): void {
-  const current = getIngredients();
-  const index = current.findIndex((i) => i.id === ingredient.id);
-  const status = calculateStockStatus(ingredient.currentStock, ingredient.minStock);
-  const updatedItem: Ingredient = {
-    ...ingredient,
-    status,
-    updatedAt: new Date().toISOString(),
-  };
-
-  let updatedList: Ingredient[];
-  if (index >= 0) {
-    updatedList = [...current];
-    updatedList[index] = updatedItem;
-  } else {
-    updatedList = [updatedItem, ...current];
-  }
-
-  localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(updatedList));
-}
-
-export function deleteIngredient(id: string): void {
-  const current = getIngredients();
-  const filtered = current.filter((i) => i.id !== id);
-  localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(filtered));
-}
-
-export function adjustStock(
-  ingredientId: string,
-  amountChange: number,
-  type: 'masuk' | 'keluar',
-  note: string
-): { success: boolean; newStock: number; message?: string } {
-  const ingredients = getIngredients();
-  const index = ingredients.findIndex((i) => i.id === ingredientId);
-
-  if (index === -1) {
-    return { success: false, newStock: 0, message: 'Bahan tidak ditemukan' };
-  }
-
-  const ing = ingredients[index];
-  let newStock = ing.currentStock;
-
-  if (type === 'masuk') {
-    newStock = Math.round((newStock + amountChange) * 100) / 100;
-  } else {
-    newStock = Math.max(0, Math.round((newStock - amountChange) * 100) / 100);
-  }
-
-  const status = calculateStockStatus(newStock, ing.minStock);
-  ingredients[index] = {
-    ...ing,
-    currentStock: newStock,
-    status,
-    updatedAt: new Date().toISOString(),
-  };
-
-  localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(ingredients));
-  return { success: true, newStock };
-}
-
 export function getMenuItems(): MenuItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.MENU_ITEMS);
@@ -420,7 +384,7 @@ export function getMenuItems(): MenuItem[] {
   }
 }
 
-export function saveMenuItem(menuItem: MenuItem): void {
+export async function saveMenuItem(menuItem: MenuItem): Promise<void> {
   const current = getMenuItems();
   const index = current.findIndex((m) => m.id === menuItem.id);
   let updatedList: MenuItem[];
@@ -432,34 +396,16 @@ export function saveMenuItem(menuItem: MenuItem): void {
   }
   localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(updatedList));
 
-  if (isSupabaseConfigured()) {
-    const isUuid = menuItem.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(menuItem.id);
-    const payload: any = {
-      name: menuItem.name,
-      category: menuItem.category,
-      base_price: menuItem.basePrice,
-      description: menuItem.description,
-      image_url: menuItem.imageUrl || null,
-      stock: menuItem.stock ?? 50,
-      unit: menuItem.unit || 'pcs',
-      is_available: menuItem.isAvailable,
-    };
-    if (isUuid) {
-      payload.id = menuItem.id;
-    }
-    supabase
+  if (isSupabaseConfigured() && UUID_REGEX.test(menuItem.id)) {
+    const { error } = await supabase
       .from('menu_items')
-      .upsert(payload)
-      .then(({ error }) => {
-        if (error) console.error('⚠️ [Supabase] Gagal menyimpan menu item:', error);
-      });
+      .update({
+        stock: menuItem.stock ?? 50,
+        is_available: menuItem.isAvailable,
+      })
+      .eq('id', menuItem.id);
+    if (error) console.error('⚠️ [Supabase] Gagal update stok minuman:', error);
   }
-}
-
-export function deleteMenuItem(id: string): void {
-  const current = getMenuItems();
-  const filtered = current.filter((m) => m.id !== id);
-  localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(filtered));
 }
 
 export function getTransactions(): Transaction[] {
@@ -480,17 +426,22 @@ export function getTransactions(): Transaction[] {
   }
 }
 
-export function createTransaction(
+/**
+ * Mencatat transaksi resmi Kasir ke Supabase Cloud, sekaligus memotong stok bahan/topping
+ * di tabel `ingredients`, mencatat mutasi `stock_logs`, dan memotong stok `menu_items` minuman.
+ */
+export async function createTransaction(
   txData: Omit<Transaction, 'id' | 'invoiceNumber' | 'date' | 'status'>
-): Transaction {
+): Promise<Transaction> {
   const currentTransactions = getTransactions();
   const randSuffix = Math.floor(1000 + Math.random() * 9000);
   const newInvoice = `TR-48-${Date.now().toString().slice(-4)}${randSuffix}`;
   const nowIso = new Date().toISOString();
+  const newTxUuid = generateUuid();
 
   const newTransaction: Transaction = {
     ...txData,
-    id: `tx-${Date.now()}`,
+    id: newTxUuid,
     invoiceNumber: newInvoice,
     date: nowIso,
     status: 'Selesai',
@@ -499,7 +450,7 @@ export function createTransaction(
   const updatedTransactions = [newTransaction, ...currentTransactions];
   localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedTransactions));
 
-  // Potong stok bahan lokal
+  // 1. Hitung pemakaian bahan baku / topping dari resep & topping prasmanan yang dipilih Kasir
   const currentIngredients = getIngredients();
   const menuMap = new Map(getMenuItems().map((m) => [m.id, m]));
   const toppingMap = new Map(TOPPING_OPTIONS.map((t) => [t.id, t]));
@@ -522,26 +473,42 @@ export function createTransaction(
     if (item.toppings && item.toppings.length > 0) {
       item.toppings.forEach((top) => {
         const topDef = toppingMap.get(top.id);
-        if (topDef && topDef.ingredientId && topDef.amountUsed) {
-          const ingId = topDef.ingredientId;
-          const totalAmount = topDef.amountUsed * item.quantity;
-          if (!usageMap[ingId]) {
-            usageMap[ingId] = { amount: 0, reason: [] };
+        const resolvedIngId =
+          top.ingredientId ||
+          topDef?.ingredientId ||
+          (top.id.startsWith('top-') ? top.id.slice(4) : undefined);
+        const amountPerUnit = topDef?.amountUsed ?? 1;
+
+        if (resolvedIngId) {
+          const totalAmount = amountPerUnit * item.quantity;
+          if (!usageMap[resolvedIngId]) {
+            usageMap[resolvedIngId] = { amount: 0, reason: [] };
           }
-          usageMap[ingId].amount += totalAmount;
-          usageMap[ingId].reason.push(`Topping ${top.name} x${item.quantity}`);
+          usageMap[resolvedIngId].amount += totalAmount;
+          if (!usageMap[resolvedIngId].reason.includes(top.name)) {
+            usageMap[resolvedIngId].reason.push(top.name);
+          }
         }
       });
     }
   });
 
+  // Terapkan pemotongan stok bahan secara lokal & kumpulkan operasi sinkronisasi Supabase
   let ingredientsModified = false;
+  const cloudIngredientUpdates: Array<{
+    ingId: string;
+    updatedStock: number;
+    deductedAmount: number;
+    note: string;
+  }> = [];
+
   Object.keys(usageMap).forEach((ingId) => {
     const ingIdx = currentIngredients.findIndex((i) => i.id === ingId);
     if (ingIdx >= 0) {
       const usage = usageMap[ingId];
       const prevStock = currentIngredients[ingIdx].currentStock;
-      const updatedStock = Math.max(0, Math.round((prevStock - usage.amount) * 100) / 100);
+      const deductedAmount = Math.round(usage.amount * 100) / 100;
+      const updatedStock = Math.max(0, Math.round((prevStock - deductedAmount) * 100) / 100);
 
       currentIngredients[ingIdx].currentStock = updatedStock;
       currentIngredients[ingIdx].status = calculateStockStatus(
@@ -550,6 +517,13 @@ export function createTransaction(
       );
       currentIngredients[ingIdx].updatedAt = nowIso;
       ingredientsModified = true;
+
+      cloudIngredientUpdates.push({
+        ingId,
+        updatedStock,
+        deductedAmount,
+        note: `Transaksi ${newInvoice} (${usage.reason.join(', ')})`,
+      });
     }
   });
 
@@ -557,75 +531,110 @@ export function createTransaction(
     localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(currentIngredients));
   }
 
-  // Potong stok minuman jika ada item minuman
+  // 2. Potong stok minuman jika ada item minuman pada transaksi kasir
   const currentMenuItems = getMenuItems();
+  const drinkSyncPromises: Promise<void>[] = [];
   newTransaction.items.forEach((item) => {
-    const mIdx = currentMenuItems.findIndex((m) => m.id === item.menuItemId || m.name === item.menuItemName);
+    const mIdx = currentMenuItems.findIndex(
+      (m) => m.id === item.menuItemId || m.name === item.menuItemName
+    );
     if (mIdx >= 0 && currentMenuItems[mIdx].category === 'Minuman') {
       const prevStock = currentMenuItems[mIdx].stock ?? 50;
       const newStock = Math.max(0, prevStock - item.quantity);
       currentMenuItems[mIdx].stock = newStock;
       currentMenuItems[mIdx].isAvailable = newStock > 0;
-      saveMenuItem(currentMenuItems[mIdx]);
+      drinkSyncPromises.push(saveMenuItem(currentMenuItems[mIdx]));
     }
   });
 
-  // Kirim transaksi ke Supabase
+  // 3. Simpan transaksi beserta pemotongan stok bahan & log mutasi ke Supabase Cloud
   if (isSupabaseConfigured()) {
-    const isDibungkus = newTransaction.notes && newTransaction.notes.toLowerCase().includes('dibungkus');
-    supabase
-      .from('transactions')
-      .insert({
-        invoice_number: newInvoice,
-        customer_name: newTransaction.customerName || 'Pelanggan',
-        dine_type: isDibungkus ? 'Dibungkus' : 'Makan di Sini',
-        total_amount: Number(newTransaction.totalAmount) || 0,
-        payment_method: newTransaction.paymentMethod || 'Tunai',
-        cash_received: newTransaction.cashReceived != null ? Number(newTransaction.cashReceived) : Number(newTransaction.totalAmount) || 0,
-        change_amount: newTransaction.change != null ? Number(newTransaction.change) : 0,
-        status: newTransaction.status || 'Selesai',
-        notes: newTransaction.notes || '',
-      })
-      .select('id')
-      .single()
-      .then(async ({ data: txRow, error }) => {
-        if (error) {
-          console.error('⚠️ [Supabase] Gagal menyimpan transaksi kasir:', error.message);
-          return;
-        }
-        if (txRow && newTransaction.items && newTransaction.items.length > 0) {
-          for (const item of newTransaction.items) {
-            const isMenuUuid = item.menuItemId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.menuItemId);
-            const { data: itemRow, error: itemErr } = await supabase
-              .from('transaction_items')
-              .insert({
-                transaction_id: txRow.id,
-                menu_item_id: isMenuUuid ? item.menuItemId : null,
-                menu_name: item.menuItemName,
-                quantity: Number(item.quantity) || 1,
-                base_price: Number(item.price) || 0,
-                spicy_level: Math.min(6, Math.max(0, Number(item.levelPedas) || 0)),
-                subtotal: Number(item.subtotal) || 0,
-                item_notes: item.notes || '',
-              })
-              .select('id')
-              .single();
+    try {
+      const isDibungkus =
+        newTransaction.notes && newTransaction.notes.toLowerCase().includes('dibungkus');
 
-            if (!itemErr && itemRow && item.toppings && item.toppings.length > 0) {
-              const toppingInserts = item.toppings.map((top) => {
-                const isTopUuid = top.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(top.id);
-                return {
-                  transaction_item_id: itemRow.id,
-                  topping_id: isTopUuid ? top.id : null,
-                  price: Number(top.price) || 0,
-                  quantity: 1,
-                };
-              });
-              await supabase.from('transaction_item_toppings').insert(toppingInserts);
-            }
+      const { data: txRow, error: txErr } = await supabase
+        .from('transactions')
+        .insert({
+          id: newTxUuid,
+          invoice_number: newInvoice,
+          customer_name: newTransaction.customerName || 'Pelanggan',
+          dine_type: isDibungkus ? 'Dibungkus' : 'Makan di Sini',
+          total_amount: Number(newTransaction.totalAmount) || 0,
+          payment_method: newTransaction.paymentMethod || 'Tunai',
+          cash_received:
+            newTransaction.cashReceived != null
+              ? Number(newTransaction.cashReceived)
+              : Number(newTransaction.totalAmount) || 0,
+          change_amount: newTransaction.change != null ? Number(newTransaction.change) : 0,
+          status: newTransaction.status || 'Selesai',
+          notes: newTransaction.notes || '',
+        })
+        .select('id')
+        .single();
+
+      if (txErr) {
+        console.error('⚠️ [Supabase] Gagal menyimpan transaksi kasir:', txErr.message);
+      } else if (txRow && newTransaction.items && newTransaction.items.length > 0) {
+        for (const item of newTransaction.items) {
+          const isMenuUuid = item.menuItemId && UUID_REGEX.test(item.menuItemId);
+          const { data: itemRow, error: itemErr } = await supabase
+            .from('transaction_items')
+            .insert({
+              transaction_id: txRow.id,
+              menu_item_id: isMenuUuid ? item.menuItemId : null,
+              menu_name: item.menuItemName,
+              quantity: Number(item.quantity) || 1,
+              base_price: Number(item.price) || 0,
+              spicy_level: Math.min(6, Math.max(0, Number(item.levelPedas) || 0)),
+              subtotal: Number(item.subtotal) || 0,
+              item_notes: item.notes || '',
+            })
+            .select('id')
+            .single();
+
+          if (!itemErr && itemRow && item.toppings && item.toppings.length > 0) {
+            const toppingInserts = item.toppings.map((top) => {
+              const isTopUuid = top.id && UUID_REGEX.test(top.id);
+              return {
+                transaction_item_id: itemRow.id,
+                topping_id: isTopUuid ? top.id : null,
+                price: Number(top.price) || 0,
+                quantity: 1,
+              };
+            });
+            await supabase.from('transaction_item_toppings').insert(toppingInserts);
           }
         }
-      });
+      }
+
+      // Update stok bahan di tabel `ingredients` & catat mutasi keluar di `stock_logs`
+      if (cloudIngredientUpdates.length > 0) {
+        await Promise.all(
+          cloudIngredientUpdates
+            .filter((u) => UUID_REGEX.test(u.ingId))
+            .map(async (u) => {
+              await supabase
+                .from('ingredients')
+                .update({ current_stock: u.updatedStock, updated_at: nowIso })
+                .eq('id', u.ingId);
+
+              await supabase.from('stock_logs').insert({
+                ingredient_id: u.ingId,
+                transaction_id: txErr ? null : newTxUuid,
+                type: 'keluar',
+                amount: u.deductedAmount,
+                balance_after: u.updatedStock,
+                note: u.note,
+              });
+            })
+        );
+      }
+
+      await Promise.all(drinkSyncPromises);
+    } catch (err) {
+      console.error('⚠️ [Supabase] Terjadi kesalahan saat sinkronisasi checkout kasir:', err);
+    }
   }
 
   return newTransaction;
@@ -643,22 +652,40 @@ export function getStockLogs(): StockLog[] {
 
 export function getSettings(): StoreSettings {
   try {
+    const uiPrefs = getLocalUiPrefs();
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(INITIAL_SETTINGS));
-      return INITIAL_SETTINGS;
+      const merged = {
+        ...INITIAL_SETTINGS,
+        isDarkMode: uiPrefs.isDarkMode ?? INITIAL_SETTINGS.isDarkMode,
+        textScale: uiPrefs.textScale ?? INITIAL_SETTINGS.textScale,
+      };
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
+      return merged;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return {
+      ...parsed,
+      isDarkMode: uiPrefs.isDarkMode ?? parsed.isDarkMode,
+      textScale: uiPrefs.textScale ?? parsed.textScale,
+    };
   } catch (e) {
     console.error('Gagal membaca pengaturan:', e);
     return INITIAL_SETTINGS;
   }
 }
 
-export function saveSettings(settings: StoreSettings): void {
+/**
+ * Preferensi mode gelap & ukuran teks disimpan lokal per perangkat (tidak mengubah store_settings global)
+ */
+export function saveSettings(settings: StoreSettings, syncStoreProfile = false): void {
+  saveLocalUiPrefs({
+    isDarkMode: settings.isDarkMode,
+    textScale: settings.textScale,
+  });
   localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
 
-  if (isSupabaseConfigured()) {
+  if (syncStoreProfile && isSupabaseConfigured()) {
     supabase
       .from('store_settings')
       .upsert({
@@ -667,8 +694,6 @@ export function saveSettings(settings: StoreSettings): void {
         slogan: settings.slogan,
         address: settings.address,
         phone: settings.phone,
-        text_scale: settings.textScale,
-        is_dark_mode: settings.isDarkMode,
         updated_at: new Date().toISOString(),
       })
       .then(({ error }) => {
@@ -693,122 +718,105 @@ export function getBowlOrders(): BowlOrder[] {
   }
 }
 
-export function addBowlOrder(
+/**
+ * Mengirim antrean mangkuk pelanggan ke tabel `bowl_orders` & `bowl_order_drinks` di Supabase.
+ * TIDAK membuat transaksi keuangan sebelum Kasir menghitung topping & menerima pembayaran!
+ */
+export async function addBowlOrder(
   orderData: Omit<BowlOrder, 'id' | 'createdAt' | 'status'>
-): BowlOrder {
+): Promise<BowlOrder> {
   const current = getBowlOrders();
+  const bowlUuid = generateUuid();
+  const queueCode =
+    orderData.invoiceNumber ||
+    `ANT-48-${Date.now().toString().slice(-4)}${Math.floor(10 + Math.random() * 90)}`;
+
   const newOrder: BowlOrder = {
     ...orderData,
-    id: `bowl-ord-${Date.now()}`,
+    id: bowlUuid,
+    invoiceNumber: queueCode,
     createdAt: new Date().toISOString(),
     status: 'menunggu_hitung',
   };
 
   const filtered = current.filter(
-    (b) => !(b.bowlNumber.toLowerCase() === newOrder.bowlNumber.toLowerCase() && b.status === 'menunggu_hitung')
+    (b) =>
+      !(
+        b.bowlNumber.toLowerCase() === newOrder.bowlNumber.toLowerCase() &&
+        b.status === 'menunggu_hitung'
+      )
   );
   const updated = [newOrder, ...filtered];
   localStorage.setItem(STORAGE_KEYS.BOWL_ORDERS, JSON.stringify(updated));
 
-  // Simpan ke Supabase di cloud
   if (isSupabaseConfigured()) {
-    supabase
-      .from('bowl_orders')
-      .insert({
-        bowl_number: newOrder.bowlNumber,
-        customer_name: newOrder.customerName,
-        dine_type: newOrder.dineType,
-        spicy_level: newOrder.spicyLevel,
-        spicy_request_text: newOrder.spicyRequestText || null,
-        broth_type: newOrder.brothType,
-        notes: newOrder.notes || null,
-        status: 'menunggu_hitung',
-        invoice_number: newOrder.invoiceNumber || null,
-      })
-      .select('id')
-      .single()
-      .then(({ data, error }) => {
-        if (error) {
-          console.error('⚠️ [Supabase] Gagal menyimpan bowl_order:', error);
-          return;
-        }
-        if (data && newOrder.drinks && newOrder.drinks.length > 0) {
-          const drinkRows = newOrder.drinks.map((d) => {
-            const isMenuUuid = d.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(d.id);
-            return {
-              bowl_order_id: data.id,
-              menu_item_id: isMenuUuid ? d.id : null,
-              name: d.name,
-              price: d.price,
-              qty: d.qty,
-            };
-          });
-          supabase
-            .from('bowl_order_drinks')
-            .insert(drinkRows)
-            .then(({ error: drinkErr }) => {
-              if (drinkErr) console.error('⚠️ [Supabase] Gagal menyimpan bowl drinks:', drinkErr);
-            });
-        }
-      });
+    try {
+      const { data, error } = await supabase
+        .from('bowl_orders')
+        .insert({
+          id: bowlUuid,
+          bowl_number: newOrder.bowlNumber.slice(0, 20),
+          customer_name: newOrder.customerName.slice(0, 100),
+          dine_type: newOrder.dineType,
+          spicy_level: Math.min(6, Math.max(0, Number(newOrder.spicyLevel) || 0)),
+          spicy_request_text: newOrder.spicyRequestText
+            ? newOrder.spicyRequestText.slice(0, 150)
+            : null,
+          broth_type: newOrder.brothType,
+          notes: newOrder.notes ? newOrder.notes.slice(0, 300) : null,
+          status: 'menunggu_hitung',
+          invoice_number: queueCode,
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        console.error('⚠️ [Supabase] Gagal menyimpan bowl_order:', error);
+      } else if (data && newOrder.drinks && newOrder.drinks.length > 0) {
+        const drinkRows = newOrder.drinks.map((d) => {
+          const isMenuUuid = d.id && UUID_REGEX.test(d.id);
+          return {
+            bowl_order_id: data.id,
+            menu_item_id: isMenuUuid ? d.id : null,
+            name: d.name.slice(0, 100),
+            price: Number(d.price) || 0,
+            qty: Math.max(1, Number(d.qty) || 1),
+          };
+        });
+        const { error: drinkErr } = await supabase.from('bowl_order_drinks').insert(drinkRows);
+        if (drinkErr) console.error('⚠️ [Supabase] Gagal menyimpan bowl drinks:', drinkErr);
+      }
+    } catch (err) {
+      console.error('⚠️ [Supabase] Error saat mengirim antrean mangkuk:', err);
+    }
   }
 
   return newOrder;
 }
 
-export function completeBowlOrder(id: string, invoiceNumber?: string): void {
+export async function completeBowlOrder(
+  id: string,
+  invoiceNumber?: string,
+  transactionId?: string
+): Promise<void> {
   const current = getBowlOrders();
   const updated = current.map((b) =>
-    b.id === id ? { ...b, status: 'selesai' as const, invoiceNumber: invoiceNumber || b.invoiceNumber } : b
+    b.id === id
+      ? { ...b, status: 'selesai' as const, invoiceNumber: invoiceNumber || b.invoiceNumber }
+      : b
   );
   localStorage.setItem(STORAGE_KEYS.BOWL_ORDERS, JSON.stringify(updated));
 
-  if (isSupabaseConfigured()) {
-    supabase
-      .from('bowl_orders')
-      .update({
-        status: 'selesai',
-        ...(invoiceNumber ? { invoice_number: invoiceNumber } : {}),
-      })
-      .eq('id', id)
-      .then(({ error }) => {
-        if (error) console.error('⚠️ [Supabase] Gagal update status bowl_orders:', error);
-      });
-  }
-}
-
-export async function clearAllData(): Promise<void> {
-  localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify([]));
-  localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify([]));
-  localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
-  localStorage.setItem(STORAGE_KEYS.STOCK_LOGS, JSON.stringify([]));
-  localStorage.setItem(STORAGE_KEYS.BOWL_ORDERS, JSON.stringify([]));
-  localStorage.setItem('seblak48_data_cleared', 'true');
-
-  if (isSupabaseConfigured()) {
-    try {
-      await supabase.from('transaction_item_toppings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('transaction_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('stock_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('bowl_order_drinks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('bowl_order_toppings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('bowl_orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('menu_recipes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('ingredients').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('menu_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    } catch (err) {
-      console.warn('⚠️ Gagal menghapus data di Supabase:', err);
+  if (isSupabaseConfigured() && UUID_REGEX.test(id)) {
+    const updatePayload: Record<string, any> = {
+      status: 'selesai',
+    };
+    if (invoiceNumber) updatePayload.invoice_number = invoiceNumber;
+    if (transactionId && UUID_REGEX.test(transactionId)) {
+      updatePayload.transaction_id = transactionId;
     }
-  }
-}
 
-export function resetToDefaultData(): void {
-  localStorage.removeItem('seblak48_data_cleared');
-  localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(INITIAL_INGREDIENTS));
-  localStorage.setItem(STORAGE_KEYS.MENU_ITEMS, JSON.stringify(INITIAL_MENU_ITEMS));
-  localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
-  localStorage.setItem(STORAGE_KEYS.STOCK_LOGS, JSON.stringify(INITIAL_STOCK_LOGS));
-  localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(INITIAL_SETTINGS));
-  localStorage.setItem(STORAGE_KEYS.BOWL_ORDERS, JSON.stringify(INITIAL_BOWL_ORDERS));
+    const { error } = await supabase.from('bowl_orders').update(updatePayload).eq('id', id);
+    if (error) console.error('⚠️ [Supabase] Gagal update status bowl_orders:', error);
+  }
 }

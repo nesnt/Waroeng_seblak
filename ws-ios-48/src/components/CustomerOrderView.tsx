@@ -23,12 +23,11 @@ import {
   ChevronsDown,
   Search,
   X,
-  LogIn,
 } from 'lucide-react';
-import { Ingredient, MenuItem, StoreSettings, OrderItem, BowlOrderDrink } from '../types';
+import { Ingredient, MenuItem, StoreSettings, BowlOrderDrink } from '../types';
 import { formatRupiah } from '../utils/formatters';
 import { IngredientImage } from './IngredientIllustration';
-import { createTransaction, addBowlOrder } from '../services/storage';
+import { addBowlOrder } from '../services/storage';
 
 interface CustomerOrderViewProps {
   settings: StoreSettings;
@@ -206,6 +205,7 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
   const [drinkSearchQuery, setDrinkSearchQuery] = useState<string>('');
   const [isEditingReceipt, setIsEditingReceipt] = useState<boolean>(false);
   const [createdInvoice, setCreatedInvoice] = useState<string>('');
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
   // Scroll hint state for Step 2 when user is still at the top / hasn't scrolled to submit
@@ -254,25 +254,10 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
     }
   };
 
-  // Drink helpers
-  const updateDrinkQty = (drinkId: string, delta: number) => {
-    setSelectedDrinks((prev) => {
-      const current = prev[drinkId] || 0;
-      const next = Math.max(0, current + delta);
-      const updated = { ...prev };
-      if (next === 0) {
-        delete updated[drinkId];
-      } else {
-        updated[drinkId] = next;
-      }
-      return updated;
-    });
-  };
-
-  // Katalog Minuman Dinamis dari Database (Kategori Minuman & Tersedia)
+  // Katalog Minuman Dinamis dari Database (Kategori Minuman, Tersedia & Stok > 0)
   const activeDrinkCatalog: DrinkOption[] = useMemo(() => {
     const fromMenu = (menuItems || [])
-      .filter((m) => m.category === 'Minuman' && m.isAvailable)
+      .filter((m) => m.category === 'Minuman' && m.isAvailable && (m.stock ?? 50) > 0)
       .map((m) => ({
         id: m.id,
         name: m.name,
@@ -288,6 +273,23 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
     }
     return DRINK_CATALOG;
   }, [menuItems]);
+
+  // Drink helpers (dibatasi sesuai sisa stok minuman yang tersedia)
+  const updateDrinkQty = (drinkId: string, delta: number) => {
+    const drinkDef = activeDrinkCatalog.find((d) => d.id === drinkId);
+    const maxStock = drinkDef?.stock ?? 50;
+    setSelectedDrinks((prev) => {
+      const current = prev[drinkId] || 0;
+      const next = Math.min(maxStock, Math.max(0, current + delta));
+      const updated = { ...prev };
+      if (next === 0) {
+        delete updated[drinkId];
+      } else {
+        updated[drinkId] = next;
+      }
+      return updated;
+    });
+  };
 
   const totalDrinkCount = Object.values(selectedDrinks).reduce((sum, qty) => sum + qty, 0);
   const totalDrinkPrice = activeDrinkCatalog.reduce(
@@ -335,84 +337,64 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
     }
   };
 
-  // Final Confirmation Submit
-  const handleConfirmOrder = () => {
-    const spicySummaryLabel =
-      spicyLevel === 0
-        ? 'Original'
-        : spicyLevel === 6
-        ? `Request (${spicyRequestText.trim() || 'Sesuai Request'})`
-        : `${spicyLevel}`;
+  // Final Confirmation Submit (HANYA masuk antrean bowl_orders; transaksi omset & potong stok dilakukan Kasir saat bayar!)
+  const handleConfirmOrder = async () => {
+    if (isSubmittingOrder) return;
 
-    const items: OrderItem[] = [
-      {
-        menuItemId: 'menu-1',
-        menuItemName: `Seblak Prasmanan (Mangkuk #${bowlNumber.trim()})`,
-        quantity: 1,
-        price: 15000,
-        levelPedas: spicyLevel === 6 ? 5 : spicyLevel,
-        toppings: [],
-        subtotal: 15000,
-        notes: `${dineType} · Kuah ${brothType} · Pedas: ${spicySummaryLabel}${notes.trim() ? ` · ${notes.trim()}` : ''}`,
-      },
-    ];
+    const cleanBowl = bowlNumber.trim().slice(0, 15);
+    const cleanCustomer = customerName.trim().slice(0, 60);
+    const cleanNotes = notes.trim().slice(0, 200);
+    const cleanSpicyReq = spicyRequestText.trim().slice(0, 80);
 
-    activeDrinkCatalog.forEach((drink) => {
-      const qty = selectedDrinks[drink.id] || 0;
-      if (qty > 0) {
-        items.push({
-          menuItemId: drink.id || 'menu-6',
-          menuItemName: drink.name,
-          quantity: qty,
-          price: drink.price,
-          levelPedas: 0,
-          toppings: [],
-          subtotal: qty * drink.price,
-          notes: 'Minuman Tambahan',
-        });
-      }
-    });
+    if (!cleanBowl || !cleanCustomer) {
+      setErrorMsg('Nomor mangkuk dan nama pemesan wajib diisi.');
+      return;
+    }
 
-    const totalAmount = items.reduce((acc, item) => acc + item.subtotal, 0);
+    // Proteksi anti-spam pengiriman beruntun (cooldown 5 detik per perangkat)
+    const lastSubmitTs = Number(sessionStorage.getItem('seblak48_last_bowl_submit') || '0');
+    if (Date.now() - lastSubmitTs < 5000) {
+      setErrorMsg('Pesanan baru saja dikirim. Mohon tunggu beberapa detik sebelum mengirim pesanan lagi.');
+      return;
+    }
 
-    const newTx = createTransaction({
-      customerName: `${customerName.trim()} (Mangkuk #${bowlNumber.trim()})`,
-      items,
-      totalAmount,
-      paymentMethod: 'QRIS',
-      notes: `${dineType} | Mangkuk #${bowlNumber.trim()} | Kuah: ${brothType} | Pedas: ${spicySummaryLabel}${
-        notes.trim() ? ` | Catatan: ${notes.trim()}` : ''
-      }`,
-    });
+    setIsSubmittingOrder(true);
+    setErrorMsg('');
 
-    const orderedDrinks: BowlOrderDrink[] = [];
-    activeDrinkCatalog.forEach((drink) => {
-      const qty = selectedDrinks[drink.id] || 0;
-      if (qty > 0) {
-        orderedDrinks.push({
-          id: drink.id,
-          name: drink.name,
-          price: drink.price,
-          qty,
-        });
-      }
-    });
+    try {
+      const orderedDrinks: BowlOrderDrink[] = [];
+      activeDrinkCatalog.forEach((drink) => {
+        const qty = selectedDrinks[drink.id] || 0;
+        if (qty > 0) {
+          orderedDrinks.push({
+            id: drink.id,
+            name: drink.name,
+            price: drink.price,
+            qty: Math.min(drink.stock ?? 50, qty),
+          });
+        }
+      });
 
-    addBowlOrder({
-      bowlNumber: bowlNumber.trim(),
-      customerName: customerName.trim(),
-      dineType,
-      spicyLevel,
-      spicyRequestText: spicyLevel === 6 ? spicyRequestText.trim() : undefined,
-      brothType,
-      notes: notes.trim(),
-      drinks: orderedDrinks,
-      invoiceNumber: newTx.invoiceNumber,
-    });
+      const createdBowl = await addBowlOrder({
+        bowlNumber: cleanBowl,
+        customerName: cleanCustomer,
+        dineType,
+        spicyLevel,
+        spicyRequestText: spicyLevel === 6 ? cleanSpicyReq : undefined,
+        brothType,
+        notes: cleanNotes,
+        drinks: orderedDrinks,
+      });
 
-    setCreatedInvoice(newTx.invoiceNumber);
-    onOrderCreated();
-    setStep('completed');
+      sessionStorage.setItem('seblak48_last_bowl_submit', String(Date.now()));
+      setCreatedInvoice(createdBowl.invoiceNumber || `ANT-48-${cleanBowl}`);
+      onOrderCreated();
+      setStep('completed');
+    } catch {
+      setErrorMsg('Gagal mengirim pesanan. Periksa koneksi internet lalu coba lagi.');
+    } finally {
+      setIsSubmittingOrder(false);
+    }
   };
 
   // Reset for new order
@@ -467,18 +449,6 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {onBackToLogin && (
-              <button
-                type="button"
-                onClick={onBackToLogin}
-                className="px-3 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                title="Buka Portal Kasir"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Portal Kasir</span>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={onToggleTheme}
@@ -1460,6 +1430,7 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
                   <div className="pt-4 font-sans">
                     <button
                       type="button"
+                      disabled={isSubmittingOrder}
                       onClick={() => {
                         if (!bowlNumber.trim()) {
                           setErrorMsg('Nomor mangkuk tidak boleh kosong.');
@@ -1473,10 +1444,14 @@ export const CustomerOrderView: React.FC<CustomerOrderViewProps> = ({
                         setIsEditingReceipt(false);
                         handleConfirmOrder();
                       }}
-                      className="w-full py-4 px-5 rounded-2xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer"
+                      className="w-full py-4 px-5 rounded-2xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <CheckCircle2 className="w-5 h-5 shrink-0" />
-                      <span>Konfirmasi &amp; Selesaikan Pemesanan</span>
+                      <span>
+                        {isSubmittingOrder
+                          ? 'Mengirim Pesanan ke Kasir & Dapur...'
+                          : 'Konfirmasi & Selesaikan Pemesanan'}
+                      </span>
                     </button>
                   </div>
                 </div>
