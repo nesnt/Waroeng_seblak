@@ -5,10 +5,13 @@ import { formatRupiah } from '../utils/formatters';
 import { printViaLaptopPrinter, isLocalKasirHost } from '../utils/laptopPrint';
 import {
   printViaWebBluetooth,
+  printViaRawBT,
   hasConnectedBluetoothPrinter,
   getConnectedPrinterName,
+  resetWebBluetoothPrinter,
+  isAndroidDevice,
 } from '../utils/webBluetoothPrint';
-import { Printer, X, CheckCircle2, Info, Loader2, Bluetooth } from 'lucide-react';
+import { Printer, X, CheckCircle2, Info, Loader2, Bluetooth, RotateCcw } from 'lucide-react';
 
 interface ReceiptModalProps {
   transaction: Transaction | null;
@@ -26,8 +29,23 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   autoPrint = true,
 }) => {
   const [isPrinting, setIsPrinting] = useState(false);
-  const [printStatus, setPrintStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [printingStage, setPrintingStage] = useState<string>('');
+  const [printStatus, setPrintStatus] = useState<{
+    type: 'success' | 'error';
+    message: string;
+    showRawBtFallback?: boolean;
+  } | null>(null);
+  const [connectedPrinter, setConnectedPrinter] = useState<string | null>(() =>
+    hasConnectedBluetoothPrinter() ? getConnectedPrinterName() : null
+  );
   const hasAutoPrinted = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (!transaction || hasAutoPrinted.current || !autoPrint) return;
@@ -41,12 +59,36 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
   if (!transaction) return null;
 
-  const handleBluetoothPrint = async (isAuto = false) => {
+  const handleCancelPrint = () => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    resetWebBluetoothPrinter();
+    setConnectedPrinter(null);
+    setIsPrinting(false);
+    setPrintingStage('');
+    setPrintStatus({
+      type: 'error',
+      message: 'Proses cetak Bluetooth dibatalkan. Silakan coba lagi atau ganti metode cetak.',
+      showRawBtFallback: isAndroidDevice(),
+    });
+  };
+
+  const handleBluetoothPrint = async (isAuto = false, forceReselect = false) => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsPrinting(true);
+    setPrintingStage('Menyiapkan Bluetooth...');
     setPrintStatus(null);
     try {
-      const res = await printViaWebBluetooth(transaction, settings);
+      const res = await printViaWebBluetooth(transaction, settings, {
+        forceReselect,
+        signal: controller.signal,
+        onProgress: (stage) => setPrintingStage(stage),
+      });
       if (res.success) {
+        setConnectedPrinter(res.printerName || getConnectedPrinterName() || 'Terhubung');
         setPrintStatus({
           type: 'success',
           message: isAuto
@@ -54,23 +96,47 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             : `✅ Struk berhasil dicetak ke ${res.printerName || 'Printer Bluetooth'}!`,
         });
       } else {
+        setConnectedPrinter(hasConnectedBluetoothPrinter() ? getConnectedPrinterName() : null);
         setPrintStatus({
           type: 'error',
           message: res.error || 'Gagal mencetak ke printer Bluetooth.',
+          showRawBtFallback: isAndroidDevice() && res.code !== 'cancelled',
         });
       }
     } catch (err: any) {
+      setConnectedPrinter(null);
       setPrintStatus({
         type: 'error',
-        message: err.message || 'Gagal menghubungkan ke printer Bluetooth.',
+        message: err?.message || 'Gagal menghubungkan ke printer Bluetooth.',
+        showRawBtFallback: isAndroidDevice(),
       });
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setIsPrinting(false);
+      setPrintingStage('');
+    }
+  };
+
+  const handleRawBtPrint = () => {
+    const res = printViaRawBT(transaction, settings);
+    if (res.success) {
+      setPrintStatus({
+        type: 'success',
+        message: '✅ Perintah cetak dikirim ke aplikasi RawBT (Android Bluetooth Classic).',
+      });
+    } else {
+      setPrintStatus({
+        type: 'error',
+        message: res.error || 'Gagal membuka aplikasi RawBT.',
+      });
     }
   };
 
   const handleLaptopPrint = async (isAuto = false) => {
     setIsPrinting(true);
+    setPrintingStage('Mengirim ke printer USB lokal...');
     setPrintStatus(null);
     try {
       const res = await printViaLaptopPrinter(transaction, settings);
@@ -94,6 +160,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
       });
     } finally {
       setIsPrinting(false);
+      setPrintingStage('');
     }
   };
 
@@ -330,37 +397,70 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         <div className="no-print p-4 bg-stone-50 dark:bg-stone-950/60 border-t border-stone-200 dark:border-stone-800 flex flex-col gap-2.5">
           {printStatus && (
             <div
-              className={`p-2.5 rounded-xl text-xs font-semibold ${
+              className={`p-2.5 rounded-xl text-xs font-semibold space-y-2 ${
                 printStatus.type === 'error'
                   ? 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/50'
                   : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
               }`}
             >
-              {printStatus.message}
+              <p className="leading-snug">{printStatus.message}</p>
+              {printStatus.showRawBtFallback && (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={handleRawBtPrint}
+                    className="py-1.5 px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] transition cursor-pointer"
+                  >
+                    Cetak via RawBT (Bluetooth Classic)
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
           <div className="space-y-2">
-            <button
-              type="button"
-              disabled={isPrinting}
-              onClick={() => handleBluetoothPrint(false)}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer disabled:opacity-50"
-              title="Hubungkan & cetak langsung ke printer thermal Bluetooth (POS58 / Woya WP58D)"
-            >
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={isPrinting}
+                onClick={() => handleBluetoothPrint(false)}
+                className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs sm:text-sm shadow-md shadow-orange-600/20 active:scale-98 transition cursor-pointer disabled:opacity-70"
+                title="Hubungkan & cetak langsung ke printer thermal Bluetooth (POS58 / Woya WP58D)"
+              >
+                {isPrinting ? (
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                ) : (
+                  <Bluetooth className="w-4 h-4 shrink-0" />
+                )}
+                <span className="truncate">
+                  {isPrinting
+                    ? printingStage || 'Mencetak...'
+                    : connectedPrinter
+                    ? `Cetak Bluetooth (${connectedPrinter})`
+                    : 'Cetak via Bluetooth (POS58)'}
+                </span>
+              </button>
+
               {isPrinting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Bluetooth className="w-4 h-4" />
-              )}
-              <span>
-                {isPrinting
-                  ? 'Mencetak...'
-                  : hasConnectedBluetoothPrinter()
-                  ? `Cetak Bluetooth (${getConnectedPrinterName() || 'Terhubung'})`
-                  : 'Cetak via Bluetooth (POS58)'}
-              </span>
-            </button>
+                <button
+                  type="button"
+                  onClick={handleCancelPrint}
+                  className="py-3 px-3.5 rounded-2xl bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60 font-bold text-xs transition cursor-pointer shrink-0"
+                  title="Batalkan koneksi Bluetooth"
+                >
+                  Batal
+                </button>
+              ) : connectedPrinter ? (
+                <button
+                  type="button"
+                  onClick={() => handleBluetoothPrint(false, true)}
+                  className="py-3 px-3 rounded-2xl bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-300 dark:hover:bg-stone-700 font-bold text-xs transition cursor-pointer shrink-0"
+                  title="Ganti / pilih ulang printer Bluetooth"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              ) : null}
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button

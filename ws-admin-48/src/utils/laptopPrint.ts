@@ -18,6 +18,9 @@ export async function printViaLaptopPrinter(
   transaction: Transaction,
   settings: StoreSettings
 ): Promise<{ success: boolean; message?: string; printer?: string; error?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+
   try {
     const res = await fetch('/api/print-thermal', {
       method: 'POST',
@@ -25,6 +28,7 @@ export async function printViaLaptopPrinter(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ transaction, settings }),
+      signal: controller.signal,
     });
 
     if (res.status === 404 || res.status === 405) {
@@ -47,9 +51,17 @@ export async function printViaLaptopPrinter(
     const data = await res.json();
     return data;
   } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      return {
+        success: false,
+        error: 'Server printer USB lokal tidak merespons (timeout 15 detik).',
+      };
+    }
     return {
       success: false,
       error: `Gagal menghubungi server cetak lokal: ${err.message || 'Koneksi terputus'}`,
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
